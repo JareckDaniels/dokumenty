@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -242,7 +241,7 @@ class _ReaderHomeState extends State<ReaderHome> {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Dokumenty · 0.1.0'),
+        title: const Text('Dokumenty · 0.1.1'),
         content: const SingleChildScrollView(
           child: Text(
             'Wersja testowa. Pliki otwierają się lokalnie, bez internetu.\n\n'

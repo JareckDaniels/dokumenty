@@ -50,7 +50,7 @@ jobs:
       - name: Udostepnij APK
         uses: actions/upload-artifact@v4
         with:
-          name: dokumenty-0.1.0-apk
+          name: dokumenty-0.1.1-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 14
           if-no-files-found: error

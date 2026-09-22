@@ -1,7 +1,12 @@
-# Dokumenty 0.1.0 — wersja testowa
+# Dokumenty 0.1.1 — wersja testowa
 
 Prosty czytnik dokumentów na Androida, interfejs we Flutterze.
 Silnik LibreOffice 26.2.6.3 pracuje wewnątrz aplikacji, bez serwera i bez instalowania drugiej aplikacji.
+
+## Poprawka 0.1.1
+
+Usunięto zbędny import `dart:typed_data`, który zatrzymywał krok `flutter analyze`.
+Numer kompilacji podniesiono do 2. Pozostałe funkcje bez zmian.
 
 ## Co jest w tej wersji
 
@@ -26,7 +31,7 @@ nie dowodzą poprawności renderowania LibreOffice.
    `pubspec.yaml` musi być bezpośrednio w katalogu repozytorium. Skopiuj również `.github` i `.gitignore`.
 3. Zrób Commit, następnie Push origin.
 4. Otwórz Actions → „Zbuduj Dokumenty APK”. Pierwszy build pobiera dodatkowo około 84 MB silnika.
-5. Gdy build będzie zielony, pobierz artefakt `dokumenty-0.1.0-apk`.
+5. Gdy build będzie zielony, pobierz artefakt `dokumenty-0.1.1-apk`.
 6. Rozpakuj artefakt, prześlij `app-release.apk` na telefon i zainstaluj.
 7. Otwórz aplikację i wybierz plik. Przy pierwszym dokumencie Office nastąpi przygotowanie silnika.
 8. Aby otwierać pliki domyślnie: w menedżerze plików wybierz dokument → Otwórz za pomocą → Dokumenty →
