@@ -30,7 +30,11 @@ final class OfficeEditor {
     private Dialog dialog;
     private PageView page;
     private TextView status;
-    private LinearLayout controls;
+    private LinearLayout controls, searchPanel;
+    private EditText searchText, replaceText;
+    private CheckBox matchCase;
+    private boolean searchPending, searchMiss;
+    private int searchMode;
     private Document document; // worker thread only
     private volatile boolean closed;
     private boolean dirty, busy = true, saving, rendering, rerender;
@@ -71,6 +75,9 @@ final class OfficeEditor {
         addButton(controls, "↷ Ponów", () -> command("Redo", null));
         toggle("B", "Bold"); toggle("I", "Italic"); toggle("U", "Underline");
         addButton(controls, "Rozmiar", this::chooseSize);
+        toggle("• Lista", "DefaultBullet");
+        toggle("1. Lista", "DefaultNumbering");
+        addButton(controls, "Szukaj / zamień", this::toggleSearch);
         addButton(controls, "Do lewej", () -> command("LeftPara", null));
         addButton(controls, "Wyśrodkuj", () -> command("CenterPara", null));
         addButton(controls, "Do prawej", () -> command("RightPara", null));
@@ -79,6 +86,7 @@ final class OfficeEditor {
         addButton(controls, "Wklej", this::pasteClipboard);
         addButton(controls, "Zaznacz wszystko", () -> command("SelectAll", null));
         root.addView(toolbar);
+        buildSearchPanel(root);
         status = new TextView(activity); status.setPadding(16, 4, 16, 6);
         status.setText("Otwieranie edytora…"); root.addView(status);
         page = new PageView(); root.addView(page, new LinearLayout.LayoutParams(-1, 0, 1));
@@ -125,6 +133,84 @@ final class OfficeEditor {
     private void setBusy(boolean value) {
         busy = value;
         for (int i = 0; i < controls.getChildCount(); i++) controls.getChildAt(i).setEnabled(!value);
+        enableSearch(searchPanel, !value);
+    }
+    private void enableSearch(View view, boolean enabled) {
+        view.setEnabled(enabled);
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) enableSearch(group.getChildAt(i), enabled);
+        }
+    }
+    private void buildSearchPanel(LinearLayout root) {
+        searchPanel = new LinearLayout(activity); searchPanel.setOrientation(LinearLayout.VERTICAL);
+        searchPanel.setPadding(12, 0, 12, 0); searchPanel.setVisibility(View.GONE);
+        LinearLayout fields = new LinearLayout(activity);
+        searchText = new EditText(activity); searchText.setSingleLine(true); searchText.setHint("Znajdź tekst");
+        searchText.setContentDescription("Szukany tekst");
+        replaceText = new EditText(activity); replaceText.setSingleLine(true); replaceText.setHint("Zamień na…");
+        replaceText.setContentDescription("Tekst zastępujący; puste pole usuwa znaleziony tekst");
+        searchText.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(1000)});
+        replaceText.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(1000)});
+        fields.addView(searchText, new LinearLayout.LayoutParams(0, -2, 1));
+        fields.addView(replaceText, new LinearLayout.LayoutParams(0, -2, 1));
+        searchPanel.addView(fields);
+        matchCase = new CheckBox(activity); matchCase.setText("Rozróżniaj wielkość liter"); searchPanel.addView(matchCase);
+        HorizontalScrollView scroll = new HorizontalScrollView(activity);
+        LinearLayout actions = new LinearLayout(activity); scroll.addView(actions);
+        addButton(actions, "Poprzedni", () -> search(OfficeSearch.FIND, true));
+        addButton(actions, "Następny", () -> search(OfficeSearch.FIND, false));
+        addButton(actions, "Zamień", () -> search(OfficeSearch.REPLACE, false));
+        addButton(actions, "Zamień wszystkie", () -> {
+            if (searchText.length() == 0) { searchText.setError("Wpisz szukany tekst"); return; }
+            new AlertDialog.Builder(activity).setTitle("Zamienić wszystkie wystąpienia?")
+                .setMessage("Zamiana obejmie cały dokument. Możesz ją cofnąć przyciskiem Cofnij.")
+                .setNegativeButton("Anuluj", null)
+                .setPositiveButton("Zamień wszystkie", (d, w) -> search(OfficeSearch.REPLACE_ALL, false)).show();
+        });
+        addButton(actions, "Zamknij", this::toggleSearch);
+        searchPanel.addView(scroll); root.addView(searchPanel);
+        searchText.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        searchText.setOnEditorActionListener((v, action, event) -> {
+            if (action == EditorInfo.IME_ACTION_SEARCH) { search(OfficeSearch.FIND, false); return true; }
+            return false;
+        });
+    }
+    private void toggleSearch() {
+        if (closed || busy) return;
+        boolean show = searchPanel.getVisibility() != View.VISIBLE;
+        page.resetInput(); searchPanel.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (show) {
+            searchText.requestFocus();
+            status.setText("Znajdź fragment, a następnie użyj Zamień. Puste pole zamiany usuwa tekst.");
+        } else {
+            ((InputMethodManager) activity.getSystemService(Context.INPUT_METHOD_SERVICE))
+                .hideSoftInputFromWindow(searchText.getWindowToken(), 0);
+            page.requestFocus(); status.setText("Dotknij dokumentu, aby kontynuować edycję.");
+        }
+        requestRender();
+    }
+    private void search(int mode, boolean backward) {
+        if (closed || busy || searchPending) return;
+        final String args;
+        try { args = OfficeSearch.arguments(searchText.getText().toString(), replaceText.getText().toString(), backward, matchCase.isChecked(), mode); }
+        catch (Exception e) { searchText.setError(e.getMessage()); return; }
+        searchText.setError(null); page.resetInput(); page.followCursor = true;
+        ((InputMethodManager) activity.getSystemService(Context.INPUT_METHOD_SERVICE))
+            .hideSoftInputFromWindow(searchText.getWindowToken(), 0);
+        searchPending = true; searchMiss = false; searchMode = mode;
+        enableSearch(searchPanel, false);
+        status.setText(mode == OfficeSearch.FIND ? "Wyszukiwanie…" : "Zamiana tekstu…");
+        edit(doc -> {
+            try { doc.postUnoCommand(".uno:ExecuteSearch", args, true); }
+            catch (Exception e) {
+                activity.runOnUiThread(() -> {
+                    searchPending = false;
+                    if (!closed) { enableSearch(searchPanel, !busy); status.setText("Nie udało się wyszukać lub zamienić tekstu."); }
+                });
+                throw e;
+            }
+        }, mode != OfficeSearch.FIND);
     }
     private void chooseSize() {
         final String[] sizes = {"8", "10", "11", "12", "14", "16", "18", "20", "24", "28", "32", "36", "48", "72"};
@@ -264,7 +350,31 @@ final class OfficeEditor {
             if (payload != null) for (String item : payload.split(";")) {
                 RectF r = rectangle(item); if (r != null) selection.add(r);
             }
+            if (searchPending && !selection.isEmpty()) page.reveal(selection.get(0));
             page.invalidate();
+        } else if (signal == Document.CALLBACK_SEARCH_RESULT_SELECTION) {
+            try {
+                org.json.JSONArray hits = new JSONObject(payload).optJSONArray("searchResultSelection");
+                if (hits != null && hits.length() > 0) {
+                    String rectangles = hits.getJSONObject(0).optString("rectangles");
+                    RectF first = rectangle(rectangles.split(";")[0]);
+                    if (first != null) { page.reveal(first); page.invalidate(); }
+                }
+            } catch (Exception ignored) { /* The regular selection callback still paints the highlight. */ }
+        } else if (signal == Document.CALLBACK_SEARCH_NOT_FOUND) {
+            searchMiss = true; status.setText("Nie znaleziono takiego tekstu.");
+        } else if (signal == Document.CALLBACK_UNO_COMMAND_RESULT && searchPending) {
+            try {
+                JSONObject event = new JSONObject(payload);
+                if (".uno:ExecuteSearch".equals(event.optString("commandName"))) {
+                    searchPending = false; enableSearch(searchPanel, !busy);
+                    if (!searchMiss) status.setText(!event.optBoolean("success", true)
+                        ? "Operacja nie powiodła się. Spróbuj ponownie."
+                        : searchMode == OfficeSearch.FIND ? "Wynik zaznaczony w dokumencie."
+                        : "Zakończono zamianę. Możesz użyć Cofnij.");
+                    requestRender();
+                }
+            } catch (Exception ignored) { /* Other engine notifications are not search results. */ }
         } else if (signal == Document.CALLBACK_INVALIDATE_TILES || signal == Document.CALLBACK_DOCUMENT_SIZE_CHANGED) {
             requestRender();
         } else if (signal == Document.CALLBACK_STATE_CHANGED && payload != null) {
@@ -357,12 +467,12 @@ final class OfficeEditor {
             top = Math.max(0, Math.min(top, docHeight - getHeight() / scale()));
         }
         void reveal(RectF r) {
-            double before = top;
+            double before = top, beforeLeft = left;
             if (r.bottom > top + getHeight() / scale() - 80) top = r.bottom - getHeight() / scale() + 160;
             if (r.top < top) top = Math.max(0, r.top - 160);
             if (r.left < left) left = r.left;
             if (r.right > left + getWidth() / scale()) left = r.right - getWidth() / scale() + 100;
-            clamp(); if (before != top) requestRender();
+            clamp(); if (before != top || beforeLeft != left) requestRender();
         }
         RectF screen(RectF r) { return new RectF((float)((r.left-left)*scale()), (float)((r.top-top)*scale()), (float)((r.right-left)*scale()), (float)((r.bottom-top)*scale())); }
         @Override protected void onDraw(Canvas canvas) {

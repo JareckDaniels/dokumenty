@@ -1,7 +1,35 @@
-# Plikownik 0.5.1 — wersja testowa
+# Plikownik 0.6.0 — wersja testowa
 
 Prosty czytnik dokumentów na Androida, interfejs we Flutterze.
 Silnik LibreOffice 26.2.6.3 pracuje wewnątrz aplikacji, bez serwera i bez instalowania drugiej aplikacji.
+
+## Nowości 0.6.0
+
+- Listy punktowane i numerowane w edytorze DOCX, ODT, DOC i RTF. Ustaw kursor w akapicie
+  albo zaznacz akapity i naciśnij „• Lista” lub „1. Lista”. Ponowne naciśnięcie wyłącza listę.
+- „Szukaj / zamień” otwiera panel nad dokumentem. Wpisz szukaną treść i używaj
+  „Następny” oraz „Poprzedni”; znaleziony fragment jest zaznaczany i przewijany do widoku.
+- Opcjonalne rozróżnianie wielkości liter. Wyszukiwanie dosłowne, bez wyrażeń regularnych.
+- Aby zmienić jeden fragment, najpierw go znajdź, a następnie naciśnij „Zamień”.
+  „Zamień wszystkie” wymaga potwierdzenia i obejmuje cały dokument.
+  Puste pole „Zamień na…” usuwa dopasowaną treść. Zmiany można cofnąć.
+- Limit frazy i tekstu zamiany: po 1000 znaków. Wyszukiwanie nie oznacza dokumentu jako zmienionego.
+- Poprawiono odświeżanie po automatycznym przesunięciu widoku poziomo do kursora/wyniku.
+
+Edycja i zapis poprzedniej wersji zostały potwierdzone przez użytkownika.
+Dla tej wersji sprawdzono lokalnie kompilację Java z API Androida i atrapami klas Fluttera,
+a także testy argumentów wyszukiwania (Unicode, znaki specjalne, wielkość liter, kierunek,
+zamiana na pusty tekst i ograniczenia wejścia). Nie uruchomiono lokalnie Fluttera ani APK;
+pełny build i testy Flutter wykonuje GitHub Actions. Nowe operacje silnika trzeba sprawdzić na telefonie.
+
+Krótki test: w kopii dokumentu utwórz listę, znajdź powtarzające się słowo, zamień jedno
+wystąpienie, potem wszystkie pozostałe, użyj Cofnij i zapisz. Otwórz wynik na komputerze.
+Sprawdź również wyszukanie słowa, którego nie ma, oraz polskie litery.
+Nowe listy i zamiana dotyczą dokumentów Office; TXT zachowuje dotychczasowy edytor.
+
+Implementacja poleceń odpowiada definicjom LibreOffice:
+[rodzaje wyszukiwania](https://github.com/LibreOffice/core/blob/master/include/svl/srchitem.hxx)
+i [testy wyszukiwania w widoku dokumentu](https://github.com/LibreOffice/core/blob/master/sw/qa/extras/tiledrendering/tiledrendering.cxx).
 
 ## Poprawki 0.5.1
 
@@ -81,7 +109,7 @@ nie dowodzą poprawności renderowania LibreOffice.
    `pubspec.yaml` musi być bezpośrednio w katalogu repozytorium. Skopiuj również `.github` i `.gitignore`.
 3. Zrób Commit, następnie Push origin.
 4. Otwórz Actions → „Zbuduj Plikownik APK”. Pierwszy build pobiera dodatkowo około 84 MB silnika.
-5. Gdy build będzie zielony, pobierz artefakt `plikownik-0.5.1-apk`.
+5. Gdy build będzie zielony, pobierz artefakt `plikownik-0.6.0-apk`.
 6. Rozpakuj artefakt, prześlij `app-release.apk` na telefon i zainstaluj.
 7. Otwórz aplikację i wybierz plik. Przy pierwszym dokumencie Office nastąpi przygotowanie silnika.
 8. Aby otwierać pliki domyślnie: w menedżerze plików wybierz dokument → Otwórz za pomocą → Plikownik →

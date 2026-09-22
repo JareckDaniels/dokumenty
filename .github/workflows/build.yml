@@ -50,12 +50,17 @@ jobs:
           mkdir -p build/native-tests
           javac -encoding UTF-8 -d build/native-tests native/src/main/java/pl/jarekgadzina/dokumenty/DocumentEdits.java test_native/DocumentEditsTest.java
           java -cp build/native-tests DocumentEditsTest
+      - name: Sprawdz wyszukiwanie i zamiane tekstu
+        run: |
+          mkdir -p build/native-tests
+          javac -encoding UTF-8 -d build/native-tests native/src/main/java/pl/jarekgadzina/dokumenty/OfficeSearch.java test_native/OfficeSearchTest.java
+          python3 test_native/check_office_search.py build/native-tests
       - name: Zbuduj APK ARM64
         run: flutter build apk --release --target-platform android-arm64
       - name: Udostepnij APK
         uses: actions/upload-artifact@v4
         with:
-          name: plikownik-0.5.1-apk
+          name: plikownik-0.6.0-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 14
           if-no-files-found: error
