@@ -1,0 +1,12 @@
+.dart_tool/
+.flutter-plugins*
+build/
+android/
+.engine-cache/
+.skeleton/
+*.jks
+*.keystore
+key.properties
+keystore-base64.txt
+*.apk
+*.DS_Store

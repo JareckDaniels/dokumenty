@@ -1,0 +1,56 @@
+name: Zbuduj Dokumenty APK
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: dokumenty-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Pobierz projekt
+        uses: actions/checkout@v4
+      - name: Sprawdz strukture projektu
+        run: python3 tools/check_sources.py
+      - name: Ustaw Jave
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Ustaw Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.5'
+          channel: stable
+          cache: true
+      - name: Wygeneruj Androida i przywroc nasz kod
+        run: python3 tools/prepare_android.py
+      - name: Pobierz sprawdzony silnik LibreOffice
+        run: python3 tools/prepare_engine.py
+      - name: Przygotuj podpis
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: python3 tools/signing.py
+      - name: Pobierz zaleznosci
+        run: flutter pub get
+      - name: Sprawdz kod
+        run: flutter analyze
+      - name: Sprawdz otwieranie dokumentow w interfejsie
+        run: flutter test
+      - name: Zbuduj APK ARM64
+        run: flutter build apk --release --target-platform android-arm64
+      - name: Udostepnij APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: dokumenty-0.1.0-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 14
+          if-no-files-found: error
