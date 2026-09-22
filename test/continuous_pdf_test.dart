@@ -68,4 +68,49 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  testWidgets(
+    'Pinch nie przelicza listy przy kazdym ruchu i zachowuje punkt po puszczeniu',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ContinuousPdf(
+              documentId: 7,
+              pageSizes: List.generate(10, (_) => const Size(400, 600)),
+              onPageChanged: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final list = find.byKey(const ValueKey('continuous-document'));
+      final width = tester.getSize(list).width;
+      final controller = tester.widget<ListView>(list).controller!;
+      final first = await tester.startGesture(
+        const Offset(300, 250),
+        pointer: 1,
+      );
+      final second = await tester.startGesture(
+        const Offset(500, 250),
+        pointer: 2,
+      );
+      await tester.pump();
+      await first.moveTo(const Offset(250, 250));
+      await tester.pump();
+      await second.moveTo(const Offset(550, 250));
+      await tester.pump();
+      expect(tester.getSize(list).width, width);
+      expect(controller.offset, 0);
+      final transform = tester.widget<Transform>(
+        find.byKey(const ValueKey('pinch-preview')),
+      );
+      expect(transform.transform.getMaxScaleOnAxis(), closeTo(1.5, 0.001));
+      await second.up();
+      await first.up();
+      await tester.pumpAndSettle();
+      expect(tester.getSize(list).width, closeTo(width * 1.5, 0.01));
+      expect(controller.offset, closeTo(125, 1));
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

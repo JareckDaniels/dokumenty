@@ -41,6 +41,9 @@ public class MainActivity extends FlutterActivity {
     private PdfRenderer pdf;
     private ParcelFileDescriptor descriptor;
     private File displayedPdf, exportSource;
+    private File currentSource;
+    private String currentExtension;
+    private boolean editSave;
     private String currentName;
     private long documentId = 0;
     private static final Set<String> SUPPORTED = new HashSet<>(Arrays.asList(
@@ -89,6 +92,28 @@ public class MainActivity extends FlutterActivity {
                     save.putExtra(Intent.EXTRA_TITLE, currentName.replaceFirst("\\.[^.]+$", "") + "-podglad.pdf");
                     try { startActivityForResult(save, EXPORT); }
                     catch (Exception e) { exportResult = null; exportSource = null; fail(result, e); }
+                    break;
+                case "saveEdited":
+                    String editText = call.argument("text");
+                    String format = call.argument("format");
+                    String filename = call.argument("filename");
+                    Number fontSize = call.argument("fontSize");
+                    Number sourceId = call.argument("documentId");
+                    boolean createNew = Boolean.TRUE.equals(call.argument("createNew"));
+                    boolean bold = Boolean.TRUE.equals(call.argument("bold"));
+                    boolean italic = Boolean.TRUE.equals(call.argument("italic"));
+                    WORKER.execute(() -> {
+                        try {
+                            if (!"docx".equals(format) && !"txt".equals(format)) throw new IOException("Ten format nie ma jeszcze edycji.");
+                            if (!createNew && (sourceId == null || sourceId.longValue() != documentId || currentSource == null || !format.equals(currentExtension)))
+                                throw new IOException("Dokument źródłowy zmienił się. Otwórz edycję ponownie.");
+                            if (editText == null || editText.length() > 200000) throw new IOException("Limit edytora to 200 000 znaków.");
+                            File output = File.createTempFile("edited-", "." + format, getCacheDir());
+                            if ("docx".equals(format)) DocumentEdits.writeDocx(createNew ? null : currentSource, output, editText, fontSize.intValue(), bold, italic);
+                            else Files.write(output.toPath(), editText.getBytes(StandardCharsets.UTF_8));
+                            runOnUiThread(() -> beginEditSave(output, filename, format, result));
+                        } catch (Exception e) { runOnUiThread(() -> fail(result, e)); }
+                    });
                     break;
                 case "close": submit(result, () -> { closePdf(); return null; }); break;
                 case "finishExternal":
@@ -139,17 +164,32 @@ public class MainActivity extends FlutterActivity {
         if (request == EXPORT && exportResult != null) {
             MethodChannel.Result r = exportResult; exportResult = null;
             File source = exportSource; exportSource = null;
-            if (code != Activity.RESULT_OK || data == null || data.getData() == null) { r.success(false); return; }
+            boolean edited = editSave; editSave = false;
+            if (code != Activity.RESULT_OK || data == null || data.getData() == null) {
+                if (edited && source != null) source.delete();
+                r.success(edited ? null : false); return;
+            }
             Uri target = data.getData();
             submit(r, () -> {
                 try (InputStream in = new FileInputStream(source);
                      OutputStream out = getContentResolver().openOutputStream(target, "wt")) {
                     if (out == null) throw new IOException("Nie można zapisać pliku w wybranym miejscu.");
                     copy(in, out, Long.MAX_VALUE);
-                }
-                return true;
+                } finally { if (edited) source.delete(); }
+                return edited ? target.toString() : true;
             });
         }
+    }
+
+    private void beginEditSave(File output, String filename, String format, MethodChannel.Result result) {
+        if (isFinishing() || isDestroyed()) { result.error("CLOSED", "Edytor został zamknięty.", null); return; }
+        if (exportResult != null) { result.error("BUSY", "Okno zapisu jest już otwarte.", null); return; }
+        exportSource = output; exportResult = result; editSave = true;
+        Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE);
+        save.setType(format.equals("docx") ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "text/plain");
+        save.putExtra(Intent.EXTRA_TITLE, filename == null || filename.trim().isEmpty() ? "Nowy dokument." + format : filename);
+        try { startActivityForResult(save, EXPORT); }
+        catch (Exception e) { exportSource = null; exportResult = null; editSave = false; fail(result, e); }
     }
 
     private void submit(MethodChannel.Result result, Callable<Object> task) {
@@ -197,10 +237,12 @@ public class MainActivity extends FlutterActivity {
         currentName = name;
         Map<String, Object> info = new HashMap<>();
         info.put("name", name); info.put("extension", extension);
+        info.put("documentId", documentId);
         if (extension.equals("txt") || extension.equals("csv")) {
             if (input.length() > 2 * 1024 * 1024) throw new IOException("Podgląd tekstu obsługuje pliki do 2 MB.");
             info.put("kind", "text"); info.put("text", decodeText(Files.readAllBytes(input.toPath())));
             rememberSafely(uri, input, name, extension, info);
+            currentSource = input; currentExtension = extension;
             return info;
         }
         File preview = input;
@@ -230,6 +272,7 @@ public class MainActivity extends FlutterActivity {
             info.put("pageSizes", sizes);
             info.put("converted", !extension.equals("pdf"));
             rememberSafely(uri, input, name, extension, info);
+            currentSource = input; currentExtension = extension;
             return info;
         } catch (Exception e) { closePdf(); throw e; }
     }
@@ -280,6 +323,7 @@ public class MainActivity extends FlutterActivity {
         if (pdf != null) { pdf.close(); pdf = null; }
         if (descriptor != null) { descriptor.close(); descriptor = null; }
         displayedPdf = null;
+        currentSource = null; currentExtension = null;
     }
     private static void copy(InputStream in, OutputStream out, long limit) throws IOException {
         byte[] buffer = new byte[65536]; long total = 0; int n;

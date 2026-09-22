@@ -21,14 +21,18 @@ class ContinuousPdf extends StatefulWidget {
 
 class ContinuousPdfState extends State<ContinuousPdf> {
   static const _bridge = MethodChannel('dokumenty/files');
-  final _vertical = ScrollController();
-  final _horizontal = ScrollController();
+  final _vertical = _ZoomScrollController();
+  final _horizontal = _ZoomScrollController();
   final Map<int, Offset> _pointers = {};
   Future<void> _renderQueue = Future<void>.value();
   double _zoom = 1;
   double _viewportWidth = 1;
   double _startZoom = 1, _startDistance = 1;
   Offset _anchor = Offset.zero;
+  Offset _pinchStart = Offset.zero;
+  Offset _pinchFocal = Offset.zero;
+  double _previewZoom = 1;
+  bool _pinching = false;
   List<double> _offsets = [0];
   int _reportedPage = -1;
   int _layoutSerial = 0;
@@ -46,6 +50,11 @@ class ContinuousPdfState extends State<ContinuousPdf> {
       _zoom = 1;
       _reportedPage = -1;
       _pointers.clear();
+      _pinching = false;
+      _previewZoom = 1;
+      _vertical.pendingPixels = 0;
+      _horizontal.pendingPixels = 0;
+      _layoutSerial++;
       _layout();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -56,10 +65,12 @@ class ContinuousPdfState extends State<ContinuousPdf> {
   }
 
   void _layout() {
-    final width = math.max(1.0, _viewportWidth * _zoom - 16);
+    final width = math.max(1.0, _viewportWidth - 16) * _zoom;
     _offsets = [0];
     for (final size in widget.pageSizes) {
-      _offsets.add(_offsets.last + width * size.height / size.width + 16);
+      _offsets.add(
+        _offsets.last + width * size.height / size.width + 16 * _zoom,
+      );
     }
   }
 
@@ -77,7 +88,7 @@ class ContinuousPdfState extends State<ContinuousPdf> {
   }
 
   void _reportPage() {
-    if (!_vertical.hasClients || widget.pageSizes.isEmpty) return;
+    if (_pinching || !_vertical.hasClients || widget.pageSizes.isEmpty) return;
     final page = _pageAt(_vertical.offset + 24);
     if (page == _reportedPage) return;
     _reportedPage = page;
@@ -95,90 +106,67 @@ class ContinuousPdfState extends State<ContinuousPdf> {
     _reportPage();
   }
 
-  void fitWidth() => _changeZoom(1, const Offset(0, 24));
+  void fitWidth() {
+    if (!_vertical.hasClients || _pinching) return;
+    const focal = Offset(0, 24);
+    final anchor = Offset(
+      ((_horizontal.hasClients ? _horizontal.offset : 0) + focal.dx) / _zoom,
+      (_vertical.offset + focal.dy) / _zoom,
+    );
+    _commitZoom(1, focal, anchor);
+  }
 
-  void _changeZoom(double value, Offset focal, {Offset? anchor}) {
-    if (!_vertical.hasClients) return;
-    final oldWidth = math.max(1.0, _viewportWidth * _zoom - 16);
-    final documentAnchor =
-        anchor ??
-        Offset(
-          ((_horizontal.hasClients ? _horizontal.offset : 0) + focal.dx) /
-              oldWidth,
-          (_vertical.offset +
-                  focal.dy -
-                  16 * _pageAt(_vertical.offset + focal.dy)) /
-              oldWidth,
-        );
-    final anchorPage = _pageAt(_vertical.offset + focal.dy);
+  void _commitZoom(double value, Offset focal, Offset anchor) {
+    final zoom = value.clamp(1.0, 4.0);
+    final serial = ++_layoutSerial;
+    _vertical.pendingPixels = anchor.dy * zoom - focal.dy;
+    _horizontal.pendingPixels = anchor.dx * zoom - focal.dx;
     setState(() {
-      _zoom = value.clamp(1.0, 4.0);
+      _zoom = zoom;
+      _pinching = false;
       _layout();
     });
-    final width = math.max(1.0, _viewportWidth * _zoom - 16);
-    final serial = ++_layoutSerial;
+    // Scroll positions consume their targets during layout, before the first paint
+    // at the new zoom. No visible frame at an intermediate offset.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || serial != _layoutSerial || !_vertical.hasClients) return;
-      _vertical.jumpTo(
-        (documentAnchor.dy * width + 16 * anchorPage - focal.dy).clamp(
-          0.0,
-          _vertical.position.maxScrollExtent,
-        ),
-      );
-      if (_horizontal.hasClients) {
-        _horizontal.jumpTo(
-          (documentAnchor.dx * width - focal.dx).clamp(
-            0.0,
-            _horizontal.position.maxScrollExtent,
-          ),
-        );
-      }
-      _reportPage();
+      if (mounted && serial == _layoutSerial) _reportPage();
     });
   }
 
   void _down(PointerDownEvent event) {
     _pointers[event.pointer] = event.localPosition;
-    if (_pointers.length == 2) {
-      final points = _pointers.values.toList();
-      final focal = (points[0] + points[1]) / 2;
-      _startDistance = math.max(1.0, (points[0] - points[1]).distance);
-      _startZoom = _zoom;
-      final width = math.max(1.0, _viewportWidth * _zoom - 16);
-      _anchor = Offset(
-        ((_horizontal.hasClients ? _horizontal.offset : 0) + focal.dx) / width,
-        ((_vertical.hasClients ? _vertical.offset : 0) +
-                focal.dy -
-                16 *
-                    _pageAt(
-                      (_vertical.hasClients ? _vertical.offset : 0) + focal.dy,
-                    )) /
-            width,
-      );
-      // Stop any fling when the second finger starts a pinch.
-      if (_vertical.hasClients) _vertical.jumpTo(_vertical.offset);
-      if (_horizontal.hasClients) _horizontal.jumpTo(_horizontal.offset);
-      setState(() {});
-    }
+    if (_pointers.length != 2 || _pinching || !_vertical.hasClients) return;
+    final points = _pointers.values.take(2).toList();
+    _pinchStart = _pinchFocal = (points[0] + points[1]) / 2;
+    _startDistance = math.max(1.0, (points[0] - points[1]).distance);
+    _startZoom = _previewZoom = _zoom;
+    _anchor = Offset(
+      ((_horizontal.hasClients ? _horizontal.offset : 0) + _pinchStart.dx) /
+          _zoom,
+      (_vertical.offset + _pinchStart.dy) / _zoom,
+    );
+    _vertical.jumpTo(_vertical.offset);
+    if (_horizontal.hasClients) _horizontal.jumpTo(_horizontal.offset);
+    setState(() => _pinching = true);
   }
 
   void _move(PointerMoveEvent event) {
     if (!_pointers.containsKey(event.pointer)) return;
     _pointers[event.pointer] = event.localPosition;
-    if (_pointers.length != 2) return;
-    final points = _pointers.values.toList();
-    final scale = (points[0] - points[1]).distance / _startDistance;
-    _changeZoom(
-      _startZoom * scale,
-      (points[0] + points[1]) / 2,
-      anchor: _anchor,
-    );
+    if (!_pinching || _pointers.length < 2) return;
+    final points = _pointers.values.take(2).toList();
+    setState(() {
+      _pinchFocal = (points[0] + points[1]) / 2;
+      _previewZoom =
+          (_startZoom * (points[0] - points[1]).distance / _startDistance)
+              .clamp(1.0, 4.0);
+    });
   }
 
   void _up(PointerEvent event) {
-    final wasPinching = _pointers.length >= 2;
     _pointers.remove(event.pointer);
-    if (wasPinching && mounted) setState(() {});
+    if (_pinching && _pointers.length < 2)
+      _commitZoom(_previewZoom, _pinchFocal, _anchor);
   }
 
   Future<Uint8List?> _render(int index, bool Function() stillVisible) {
@@ -209,7 +197,18 @@ class ContinuousPdfState extends State<ContinuousPdf> {
     builder: (context, constraints) {
       _viewportWidth = constraints.maxWidth;
       _layout();
-      final pinching = _pointers.length >= 2;
+      final pinching = _pinching;
+      final preview = Matrix4.identity();
+      if (pinching) {
+        preview.translateByDouble(_pinchFocal.dx, _pinchFocal.dy, 0, 1);
+        preview.scaleByDouble(
+          _previewZoom / _startZoom,
+          _previewZoom / _startZoom,
+          1,
+          1,
+        );
+        preview.translateByDouble(-_pinchStart.dx, -_pinchStart.dy, 0, 1);
+      }
       return ColoredBox(
         color: const Color(0xff333a3b),
         child: Listener(
@@ -218,36 +217,42 @@ class ContinuousPdfState extends State<ContinuousPdf> {
           onPointerMove: _move,
           onPointerUp: _up,
           onPointerCancel: _up,
-          child: SingleChildScrollView(
-            controller: _horizontal,
-            scrollDirection: Axis.horizontal,
-            physics: pinching
-                ? const NeverScrollableScrollPhysics()
-                : const ClampingScrollPhysics(),
-            child: SizedBox(
-              width: _viewportWidth * _zoom,
-              height: constraints.maxHeight,
-              child: Scrollbar(
-                controller: _vertical,
-                child: ListView.builder(
-                  key: const ValueKey('continuous-document'),
-                  controller: _vertical,
-                  physics: pinching
-                      ? const NeverScrollableScrollPhysics()
-                      : const ClampingScrollPhysics(),
-                  cacheExtent: 200,
-                  padding: EdgeInsets.only(
-                    bottom: MediaQuery.viewPaddingOf(context).bottom + 72,
-                  ),
-                  itemCount: widget.pageSizes.length,
-                  itemExtentBuilder: (index, dimensions) =>
-                      _offsets[index + 1] - _offsets[index],
-                  itemBuilder: (context, index) => Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
-                    child: _PdfPage(
-                      key: ValueKey('${widget.documentId}/$index'),
-                      index: index,
-                      render: _render,
+          child: ClipRect(
+            child: Transform(
+              key: const ValueKey('pinch-preview'),
+              transform: preview,
+              child: SingleChildScrollView(
+                controller: _horizontal,
+                scrollDirection: Axis.horizontal,
+                physics: pinching
+                    ? const NeverScrollableScrollPhysics()
+                    : const ClampingScrollPhysics(),
+                child: SizedBox(
+                  width: _viewportWidth * _zoom,
+                  height: constraints.maxHeight,
+                  child: Scrollbar(
+                    controller: _vertical,
+                    child: ListView.builder(
+                      key: const ValueKey('continuous-document'),
+                      controller: _vertical,
+                      physics: pinching
+                          ? const NeverScrollableScrollPhysics()
+                          : const ClampingScrollPhysics(),
+                      cacheExtent: 200,
+                      padding: EdgeInsets.only(
+                        bottom: MediaQuery.viewPaddingOf(context).bottom + 72,
+                      ),
+                      itemCount: widget.pageSizes.length,
+                      itemExtentBuilder: (index, dimensions) =>
+                          _offsets[index + 1] - _offsets[index],
+                      itemBuilder: (context, index) => Padding(
+                        padding: EdgeInsets.all(8 * _zoom),
+                        child: _PdfPage(
+                          key: ValueKey('${widget.documentId}/$index'),
+                          index: index,
+                          render: _render,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -339,5 +344,43 @@ class _PdfPageState extends State<_PdfPage> {
     if (_bytes != null)
       PaintingBinding.instance.imageCache.evict(MemoryImage(_bytes!));
     super.dispose();
+  }
+}
+
+class _ZoomScrollController extends ScrollController {
+  double? pendingPixels;
+  @override
+  ScrollPosition createScrollPosition(
+    ScrollPhysics physics,
+    ScrollContext context,
+    ScrollPosition? oldPosition,
+  ) => _ZoomScrollPosition(
+    physics: physics,
+    context: context,
+    oldPosition: oldPosition,
+    owner: this,
+  );
+}
+
+class _ZoomScrollPosition extends ScrollPositionWithSingleContext {
+  _ZoomScrollPosition({
+    required super.physics,
+    required super.context,
+    super.oldPosition,
+    required this.owner,
+  });
+  final _ZoomScrollController owner;
+  @override
+  bool applyContentDimensions(double minScrollExtent, double maxScrollExtent) {
+    final target = owner.pendingPixels;
+    if (target != null) {
+      owner.pendingPixels = null;
+      final bounded = target.clamp(minScrollExtent, maxScrollExtent);
+      if ((pixels - bounded).abs() > 0.01) {
+        correctPixels(bounded);
+        return false;
+      }
+    }
+    return super.applyContentDimensions(minScrollExtent, maxScrollExtent);
   }
 }

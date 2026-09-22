@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'continuous_pdf.dart';
+import 'document_editor.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,6 +46,7 @@ class _ReaderHomeState extends State<ReaderHome> {
   Map<String, dynamic>? _document;
   bool _busy = false;
   bool _externalMode = false;
+  bool _editing = false;
   bool _queuedExternal = false;
   bool _starting = true;
   List<Map<String, dynamic>> _recent = [];
@@ -141,7 +143,7 @@ class _ReaderHomeState extends State<ReaderHome> {
   }
 
   Future<void> _open(String uri, {bool external = false}) async {
-    if (_busy) {
+    if (_busy || _editing) {
       _queuedUri = uri;
       _queuedExternal = external;
       return;
@@ -186,12 +188,63 @@ class _ReaderHomeState extends State<ReaderHome> {
   }
 
   void _drain() {
-    if (mounted && !_busy && !_choosing && _queuedUri != null) {
+    if (mounted && !_busy && !_editing && !_choosing && _queuedUri != null) {
       final uri = _queuedUri!;
       final external = _queuedExternal;
       _queuedUri = null;
       unawaited(_open(uri, external: external));
     }
+  }
+
+  Future<void> _editDocument({String? newFormat}) async {
+    if (_busy || _editing) return;
+    final source = newFormat == null ? _document : null;
+    final format = newFormat ?? source?['extension'] as String?;
+    if (format == null || (format != 'docx' && format != 'txt')) return;
+    if (format == 'txt' &&
+        ((source?['text'] as String?)?.length ?? 0) > 200000) {
+      _message(
+        'Ten plik jest za duży do edycji. Limit edytora to 200 000 znaków.',
+      );
+      return;
+    }
+    _editing = true;
+    final external = _externalMode;
+    try {
+      final uri = await Navigator.of(context).push<String>(
+        MaterialPageRoute(
+          builder: (_) => DocumentEditor(format: format, document: source),
+        ),
+      );
+      _editing = false;
+      if (uri != null && mounted) {
+        await _open(uri, external: external);
+        if (mounted) _message('Zapisano nowy plik.');
+      }
+    } finally {
+      _editing = false;
+      _drain();
+    }
+  }
+
+  Future<void> _newDocument() async {
+    final format = await showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Nowy dokument'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, 'docx'),
+            child: const Text('Dokument Word (.docx)'),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, 'txt'),
+            child: const Text('Plik tekstowy (.txt)'),
+          ),
+        ],
+      ),
+    );
+    if (format != null && mounted) await _editDocument(newFormat: format);
   }
 
   Future<void> _export() async {
@@ -279,13 +332,13 @@ class _ReaderHomeState extends State<ReaderHome> {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Dokumenty · 0.3.0'),
+        title: const Text('Dokumenty · 0.4.0'),
         content: const SingleChildScrollView(
           child: Text(
             'Wersja testowa. Pliki otwierają się lokalnie, bez internetu.\n\n'
             'Dokumenty Office otrzymują podgląd PDF zgodny z ustawieniami wydruku. '
             'Oryginały nie są zmieniane. Brakujące czcionki mogą zmienić układ.\n\n'
-            'Na tym etapie: bez edycji, obsługi haseł i wyszukiwania w PDF. '
+            'Edycja: dopisywanie na końcu DOCX oraz edycja TXT, z zapisem do nowego pliku. Brak obsługi haseł i wyszukiwania w PDF. '
             'CSV jest wyświetlany jako tekst. Limit pliku: 100 MB; tekstu: 2 MB.\n\n'
             'Do renderowania użyto silnika LibreOffice 26.2.6.3. '
             'To niezależna aplikacja, nie oficjalny produkt The Document Foundation.',
@@ -366,6 +419,16 @@ class _ReaderHomeState extends State<ReaderHome> {
             overflow: TextOverflow.ellipsis,
           ),
           actions: [
+            if (document != null &&
+                (document['extension'] == 'docx' ||
+                    document['extension'] == 'txt'))
+              IconButton(
+                onPressed: locked ? null : () => _editDocument(),
+                tooltip: document['extension'] == 'docx'
+                    ? 'Dopisz do DOCX'
+                    : 'Edytuj TXT',
+                icon: const Icon(Icons.edit_outlined),
+              ),
             if (document != null)
               IconButton(
                 onPressed: locked ? null : _pick,
@@ -499,6 +562,12 @@ class _ReaderHomeState extends State<ReaderHome> {
         ),
         icon: const Icon(Icons.folder_open_rounded),
         label: const Text('Otwórz plik'),
+      ),
+      const SizedBox(height: 10),
+      OutlinedButton.icon(
+        onPressed: _choosing ? null : _newDocument,
+        icon: const Icon(Icons.note_add_outlined),
+        label: const Text('Nowy dokument'),
       ),
       if (_error != null)
         Padding(padding: const EdgeInsets.only(top: 18), child: _errorCard()),
