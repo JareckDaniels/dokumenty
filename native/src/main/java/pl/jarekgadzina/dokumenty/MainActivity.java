@@ -22,6 +22,10 @@ import java.nio.charset.*;
 import java.nio.file.Files;
 import java.util.*;
 import java.util.concurrent.*;
+import java.security.MessageDigest;
+import java.nio.file.StandardCopyOption;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 /** Native file access and serialized, offline LibreOffice/PDF work. */
 public class MainActivity extends FlutterActivity {
@@ -87,6 +91,15 @@ public class MainActivity extends FlutterActivity {
                     catch (Exception e) { exportResult = null; exportSource = null; fail(result, e); }
                     break;
                 case "close": submit(result, () -> { closePdf(); return null; }); break;
+                case "finishExternal":
+                    result.success(null);
+                    finish();
+                    break;
+                case "recent": submit(result, this::recentFiles); break;
+                case "clearRecent": submit(result, () -> {
+                    removeTree(new File(getFilesDir(), "recent-documents"));
+                    return null;
+                }); break;
                 case "licenses":
                     submit(result, () -> {
                         try (InputStream in = getAssets().open("third_party/NOTICE.txt")) {
@@ -162,6 +175,8 @@ public class MainActivity extends FlutterActivity {
                 if (c != null && c.moveToFirst()) name = c.getString(0);
             }
         } else name = new File(Objects.requireNonNull(uri.getPath())).getName();
+        String rememberedName = recentName(uri);
+        if (rememberedName != null) name = rememberedName;
         if (name == null || name.trim().isEmpty()) name = "Dokument";
         String extension = name.contains(".") ? name.substring(name.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT) : "";
         if (!SUPPORTED.contains(extension)) {
@@ -185,6 +200,7 @@ public class MainActivity extends FlutterActivity {
         if (extension.equals("txt") || extension.equals("csv")) {
             if (input.length() > 2 * 1024 * 1024) throw new IOException("Podgląd tekstu obsługuje pliki do 2 MB.");
             info.put("kind", "text"); info.put("text", decodeText(Files.readAllBytes(input.toPath())));
+            rememberSafely(uri, input, name, extension, info);
             return info;
         }
         File preview = input;
@@ -213,6 +229,7 @@ public class MainActivity extends FlutterActivity {
             }
             info.put("pageSizes", sizes);
             info.put("converted", !extension.equals("pdf"));
+            rememberSafely(uri, input, name, extension, info);
             return info;
         } catch (Exception e) { closePdf(); throw e; }
     }
@@ -295,6 +312,103 @@ public class MainActivity extends FlutterActivity {
             case "application/vnd.oasis.opendocument.spreadsheet": return "ods";
             case "application/rtf": case "text/rtf": return "rtf";
             default: return null;
+        }
+    }
+
+    // Recent entries are bounded private snapshots; they do not rely on temporary
+    // URI permissions granted by mail/messenger applications.
+    private File recentRoot() { return new File(getFilesDir(), "recent-documents"); }
+
+    private JSONArray readRecentIndex() throws Exception {
+        File index = new File(recentRoot(), "index.json");
+        if (!index.isFile()) return new JSONArray();
+        return new JSONArray(new String(Files.readAllBytes(index.toPath()), StandardCharsets.UTF_8));
+    }
+
+    private File recentEntryFile(JSONObject entry) throws Exception {
+        String filename = entry.getString("file");
+        if (!filename.matches("[a-f0-9]{64}\\.(pdf|txt|csv|doc|docx|odt|xls|xlsx|ods|rtf)"))
+            throw new IOException("Nieprawidłowy wpis historii.");
+        return new File(recentRoot(), filename);
+    }
+
+    private String recentName(Uri uri) {
+        if (!"file".equals(uri.getScheme()) || uri.getPath() == null) return null;
+        try {
+            File source = new File(uri.getPath()).getCanonicalFile();
+            JSONArray entries = readRecentIndex();
+            for (int i = 0; i < entries.length(); i++) {
+                JSONObject entry = entries.getJSONObject(i);
+                if (recentEntryFile(entry).getCanonicalFile().equals(source)) return entry.getString("name");
+            }
+        } catch (Exception ignored) { }
+        return null;
+    }
+
+    private Object recentFiles() throws Exception {
+        List<Map<String, Object>> result = new ArrayList<>();
+        JSONArray entries = readRecentIndex();
+        for (int i = 0; i < entries.length(); i++) {
+            JSONObject entry = entries.getJSONObject(i);
+            File file = recentEntryFile(entry);
+            if (!file.isFile()) continue;
+            Map<String, Object> row = new HashMap<>();
+            row.put("name", entry.getString("name"));
+            row.put("extension", entry.getString("extension"));
+            row.put("uri", Uri.fromFile(file).toString());
+            row.put("openedAt", entry.getLong("openedAt"));
+            result.add(row);
+        }
+        return result;
+    }
+
+    private void rememberSafely(Uri uri, File input, String name, String extension, Map<String, Object> info) {
+        try { remember(uri, input, name, extension); }
+        catch (Exception e) { info.put("recentWarning", "Plik otwarto, ale nie udało się dodać go do ostatnich dokumentów."); }
+    }
+
+    private void remember(Uri uri, File input, String name, String extension) throws Exception {
+        File root = recentRoot();
+        if (!root.exists() && !root.mkdirs()) throw new IOException("Nie można zapisać historii.");
+        JSONArray previous = readRecentIndex();
+        String id = null;
+        if ("file".equals(uri.getScheme()) && uri.getPath() != null) {
+            File source = new File(uri.getPath()).getCanonicalFile();
+            for (int i = 0; i < previous.length(); i++) {
+                JSONObject entry = previous.getJSONObject(i);
+                if (recentEntryFile(entry).getCanonicalFile().equals(source)) id = entry.getString("id");
+            }
+        }
+        if (id == null) {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(uri.toString().getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder();
+            for (byte b : digest) hex.append(String.format(Locale.ROOT, "%02x", b & 0xff));
+            id = hex.toString();
+        }
+        File target = new File(root, id + "." + extension);
+        File temporary = new File(root, "copy.tmp");
+        Files.copy(input.toPath(), temporary.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        JSONArray next = new JSONArray();
+        JSONObject newest = new JSONObject();
+        newest.put("id", id); newest.put("file", target.getName()); newest.put("name", name);
+        newest.put("extension", extension); newest.put("openedAt", System.currentTimeMillis());
+        next.put(newest);
+        long total = target.length();
+        Set<String> retained = new HashSet<>(); retained.add(target.getName());
+        for (int i = 0; i < previous.length(); i++) {
+            JSONObject entry = previous.getJSONObject(i);
+            File file = recentEntryFile(entry);
+            if (entry.getString("id").equals(id) || !file.isFile()) continue;
+            if (next.length() >= 10 || total + file.length() > 200L * 1024 * 1024) continue;
+            next.put(entry); total += file.length(); retained.add(file.getName());
+        }
+        File indexTemp = new File(root, "index.tmp");
+        Files.write(indexTemp.toPath(), next.toString().getBytes(StandardCharsets.UTF_8));
+        Files.move(indexTemp.toPath(), new File(root, "index.json").toPath(), StandardCopyOption.REPLACE_EXISTING);
+        File[] files = root.listFiles();
+        if (files != null) for (File file : files) {
+            if (!file.getName().equals("index.json") && !retained.contains(file.getName())) file.delete();
         }
     }
     private static void removeTree(File f) {

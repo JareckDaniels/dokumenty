@@ -1,9 +1,19 @@
-# Dokumenty 0.2.0 — wersja testowa
+# Dokumenty 0.3.0 — wersja testowa
 
 Prosty czytnik dokumentów na Androida, interfejs we Flutterze.
 Silnik LibreOffice 26.2.6.3 pracuje wewnątrz aplikacji, bez serwera i bez instalowania drugiej aplikacji.
 
-## Nowości 0.2.0
+## Nowości 0.3.0
+
+- Wstecz z pliku otwartego przez inną aplikację kończy podgląd bez pokazywania ekranu głównego.
+- Wstecz z dokumentu wybranego w aplikacji wraca do listy ostatnich dokumentów.
+- Lista ostatnich plików przechowuje maksymalnie 10 lokalnych kopii (łącznie do 200 MB).
+  Są to kopie z chwili otwarcia; późniejsze zmiany oryginału nie odświeżają ich automatycznie.
+- Lista zostaje po ponownym uruchomieniu aplikacji. Można ją wyczyścić przyciskiem kosza.
+  Usuwane są wyłącznie prywatne kopie, nie oryginały w innych folderach/aplikacjach.
+- Nowe dokumenty i edycja nie zostały jeszcze dodane.
+
+## Przewijanie z wersji 0.2.0
 
 - Ciągłe przewijanie stron PDF i podglądów Office pionowo, palcem.
 - Powiększanie dwoma palcami z zachowaniem przewijania; poziome przesuwanie po przybliżeniu.
@@ -36,7 +46,7 @@ nie dowodzą poprawności renderowania LibreOffice.
    `pubspec.yaml` musi być bezpośrednio w katalogu repozytorium. Skopiuj również `.github` i `.gitignore`.
 3. Zrób Commit, następnie Push origin.
 4. Otwórz Actions → „Zbuduj Dokumenty APK”. Pierwszy build pobiera dodatkowo około 84 MB silnika.
-5. Gdy build będzie zielony, pobierz artefakt `dokumenty-0.2.0-apk`.
+5. Gdy build będzie zielony, pobierz artefakt `dokumenty-0.3.0-apk`.
 6. Rozpakuj artefakt, prześlij `app-release.apk` na telefon i zainstaluj.
 7. Otwórz aplikację i wybierz plik. Przy pierwszym dokumencie Office nastąpi przygotowanie silnika.
 8. Aby otwierać pliki domyślnie: w menedżerze plików wybierz dokument → Otwórz za pomocą → Dokumenty →
@@ -66,8 +76,7 @@ testowymi eksportami.
 ## Podpis i kolejne aktualizacje
 
 Pierwsza wersja może budować się bez sekretów na tymczasowym kluczu testowym. Kolejny build w nowym
-środowisku GitHub może mieć inny podpis i wymagać odinstalowania poprzedniej wersji. Aplikacja na tym
-etapie nie przechowuje własnych dokumentów ani edycji, a odinstalowanie nie usuwa plików źródłowych
+środowisku GitHub może mieć inny podpis i wymagać odinstalowania poprzedniej wersji. Odinstalowanie usuwa listę ostatnich dokumentów i jej prywatne kopie, ale nie usuwa plików źródłowych
 z folderu Pobrane. Usuwa cache i ustawienia samej aplikacji.
 
 Przed zwykłym użytkowaniem kolejnych wersji skonfiguruj stały klucz przez sekrety Actions:

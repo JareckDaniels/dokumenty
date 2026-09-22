@@ -1,4 +1,4 @@
-Dokumenty 0.2.0 — informacje o komponentach
+Dokumenty 0.3.0 — informacje o komponentach
 
 Silnik: LibreOffice 26.2.6.3 (F-Droid versionCode 131, ARM64).
 Pakiet: https://f-droid.org/repo/org.documentfoundation.libreoffice_131.apk

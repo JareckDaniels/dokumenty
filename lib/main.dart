@@ -44,6 +44,10 @@ class _ReaderHomeState extends State<ReaderHome> {
   final _textScroll = ScrollController();
   Map<String, dynamic>? _document;
   bool _busy = false;
+  bool _externalMode = false;
+  bool _queuedExternal = false;
+  bool _starting = true;
+  List<Map<String, dynamic>> _recent = [];
   bool _choosing = false;
   int _page = 0;
   double _fontSize = 17;
@@ -58,7 +62,7 @@ class _ReaderHomeState extends State<ReaderHome> {
     super.initState();
     _bridge.setMethodCallHandler((call) async {
       if (call.method == 'incomingFile' && call.arguments is String) {
-        await _open(call.arguments as String);
+        await _open(call.arguments as String, external: true);
       }
     });
     _initial();
@@ -67,9 +71,58 @@ class _ReaderHomeState extends State<ReaderHome> {
   Future<void> _initial() async {
     try {
       final uri = await _bridge.invokeMethod<String>('initialUri');
-      if (uri != null && mounted) await _open(uri);
+      if (uri != null && mounted)
+        await _open(uri, external: true);
+      else
+        await _refreshRecent();
     } on PlatformException catch (e) {
       if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _starting = false);
+    }
+  }
+
+  Future<void> _refreshRecent() async {
+    try {
+      final rows = await _bridge.invokeListMethod<dynamic>('recent');
+      if (mounted)
+        setState(
+          () => _recent = (rows ?? [])
+              .map((r) => Map<String, dynamic>.from(r as Map))
+              .toList(),
+        );
+    } on PlatformException catch (e) {
+      if (mounted)
+        _message(e.message ?? 'Nie można odczytać ostatnich dokumentów.');
+    }
+  }
+
+  Future<void> _clearRecent() async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Wyczyścić ostatnie dokumenty?'),
+        content: const Text(
+          'Usunie to listę i jej lokalne kopie. Oryginalne pliki pozostaną w swoich folderach.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Anuluj'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Wyczyść'),
+          ),
+        ],
+      ),
+    );
+    if (yes != true || !mounted) return;
+    try {
+      await _bridge.invokeMethod<void>('clearRecent');
+      await _refreshRecent();
+    } on PlatformException catch (e) {
+      if (mounted) _message(e.message ?? 'Nie można wyczyścić listy.');
     }
   }
 
@@ -78,7 +131,7 @@ class _ReaderHomeState extends State<ReaderHome> {
     setState(() => _choosing = true);
     try {
       final uri = await _bridge.invokeMethod<String>('pick');
-      if (uri != null && mounted) await _open(uri);
+      if (uri != null && mounted) await _open(uri, external: _externalMode);
     } on PlatformException catch (e) {
       if (mounted) _message(e.message ?? 'Nie można wybrać pliku.');
     } finally {
@@ -87,13 +140,15 @@ class _ReaderHomeState extends State<ReaderHome> {
     }
   }
 
-  Future<void> _open(String uri) async {
+  Future<void> _open(String uri, {bool external = false}) async {
     if (_busy) {
       _queuedUri = uri;
+      _queuedExternal = external;
       return;
     }
     setState(() {
       _busy = true;
+      _externalMode = external;
       _error = null;
       _document = null;
       _page = 0;
@@ -111,6 +166,9 @@ class _ReaderHomeState extends State<ReaderHome> {
       if (!mounted) return;
       if (data == null) throw const FormatException('Brak danych dokumentu.');
       setState(() => _document = data);
+      if (data['recentWarning'] is String)
+        _message(data['recentWarning'] as String);
+      await _refreshRecent();
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -130,8 +188,9 @@ class _ReaderHomeState extends State<ReaderHome> {
   void _drain() {
     if (mounted && !_busy && !_choosing && _queuedUri != null) {
       final uri = _queuedUri!;
+      final external = _queuedExternal;
       _queuedUri = null;
-      unawaited(_open(uri));
+      unawaited(_open(uri, external: external));
     }
   }
 
@@ -152,15 +211,31 @@ class _ReaderHomeState extends State<ReaderHome> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
 
   Future<void> _close() async {
+    if (_externalMode) {
+      _queuedUri = null;
+      // Keep the document on screen until Android closes the activity: no home-screen flash.
+      try {
+        await _bridge.invokeMethod<void>('finishExternal');
+      } on PlatformException catch (e) {
+        if (mounted) _message(e.message ?? 'Nie można zamknąć podglądu.');
+      }
+      return;
+    }
     if (_busy) return;
-    setState(() {
-      _document = null;
-      _error = null;
-    });
+    setState(() => _busy = true);
     try {
       await _bridge.invokeMethod<void>('close');
+      await _refreshRecent();
+      if (mounted)
+        setState(() {
+          _document = null;
+          _error = null;
+        });
     } on PlatformException catch (e) {
       if (mounted) _message(e.message ?? 'Nie udało się zamknąć podglądu.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+      _drain();
     }
   }
 
@@ -204,7 +279,7 @@ class _ReaderHomeState extends State<ReaderHome> {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Dokumenty · 0.2.0'),
+        title: const Text('Dokumenty · 0.3.0'),
         content: const SingleChildScrollView(
           child: Text(
             'Wersja testowa. Pliki otwierają się lokalnie, bez internetu.\n\n'
@@ -272,13 +347,13 @@ class _ReaderHomeState extends State<ReaderHome> {
     final isPdf = document?['kind'] == 'pdf';
     final locked = _busy || _choosing;
     return PopScope(
-      canPop: document == null && !_busy,
+      canPop: document == null && !_busy && !_externalMode && !_starting,
       onPopInvokedWithResult: (didPop, result) {
-        if (!didPop && !locked) _close();
+        if (!didPop && (_externalMode || !locked)) _close();
       },
       child: Scaffold(
         appBar: AppBar(
-          leading: document != null
+          leading: document != null || _externalMode
               ? IconButton(
                   onPressed: locked ? null : _close,
                   tooltip: 'Zamknij dokument',
@@ -311,10 +386,30 @@ class _ReaderHomeState extends State<ReaderHome> {
               ),
           ],
         ),
-        body: _busy && document == null
+        body: _starting || (_busy && document == null)
             ? _loading()
             : document == null
-            ? _home()
+            ? (_externalMode
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              _error ?? 'Nie można otworzyć dokumentu.',
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 16),
+                            FilledButton(
+                              onPressed: _close,
+                              child: const Text('Wróć'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : _home())
             : isPdf
             ? _pdfView()
             : _textView(),
@@ -361,34 +456,42 @@ class _ReaderHomeState extends State<ReaderHome> {
       MediaQuery.viewPaddingOf(context).bottom + 72,
     ),
     children: [
-      Align(
-        alignment: Alignment.centerLeft,
-        child: Container(
-          padding: const EdgeInsets.all(22),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primaryContainer,
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: Icon(
-            Icons.description_outlined,
-            size: 48,
-            color: Theme.of(context).colorScheme.onPrimaryContainer,
+      if (_recent.isEmpty) ...[
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Container(
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primaryContainer,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Icon(
+              Icons.description_outlined,
+              size: 48,
+              color: Theme.of(context).colorScheme.onPrimaryContainer,
+            ),
           ),
         ),
-      ),
-      const SizedBox(height: 28),
-      Text(
-        'Twoje pliki.\nPo prostu otwórz.',
-        style: Theme.of(
-          context,
-        ).textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.w700),
-      ),
-      const SizedBox(height: 14),
-      Text(
-        'Czytaj dokumenty na telefonie.\nBez konta i bez internetu.',
-        style: Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.6),
-      ),
-      const SizedBox(height: 28),
+        const SizedBox(height: 28),
+        Text(
+          'Twoje pliki.\nPo prostu otwórz.',
+          style: Theme.of(
+            context,
+          ).textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          'Czytaj dokumenty na telefonie.\nBez konta i bez internetu.',
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.6),
+        ),
+        const SizedBox(height: 28),
+      ] else ...[
+        Text(
+          'Twoje dokumenty',
+          style: Theme.of(context).textTheme.headlineMedium,
+        ),
+        const SizedBox(height: 18),
+      ],
       FilledButton.icon(
         onPressed: _choosing ? null : _pick,
         style: FilledButton.styleFrom(
@@ -399,7 +502,45 @@ class _ReaderHomeState extends State<ReaderHome> {
       ),
       if (_error != null)
         Padding(padding: const EdgeInsets.only(top: 18), child: _errorCard()),
-      const SizedBox(height: 32),
+      const SizedBox(height: 24),
+      if (_recent.isNotEmpty) ...[
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Ostatnio otwierane',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+            ),
+            IconButton(
+              onPressed: _clearRecent,
+              tooltip: 'Wyczyść ostatnie dokumenty',
+              icon: const Icon(Icons.delete_outline),
+            ),
+          ],
+        ),
+        const Text(
+          'Lokalne kopie ostatnich 10 plików.',
+          style: TextStyle(fontSize: 12),
+        ),
+        const SizedBox(height: 12),
+        for (final entry in _recent)
+          Card(
+            elevation: 0,
+            child: ListTile(
+              leading: const Icon(Icons.description_outlined),
+              title: Text(
+                entry['name'] as String,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Text((entry['extension'] as String).toUpperCase()),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _open(entry['uri'] as String),
+            ),
+          ),
+        const SizedBox(height: 24),
+      ],
       _formatTile(
         Icons.picture_as_pdf_outlined,
         'Dokumenty PDF',
