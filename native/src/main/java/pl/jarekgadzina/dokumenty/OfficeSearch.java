@@ -3,6 +3,9 @@ package pl.jarekgadzina.dokumenty;
 /** Literal Writer search; no regular expressions or replacement backreferences. */
 public final class OfficeSearch {
     public static final int FIND = 0, REPLACE = 2, REPLACE_ALL = 3;
+    // com.sun.star.i18n.TransliterationModules.IGNORE_CASE = 0x100.
+    // Value 1 means UPPERCASE_LOWERCASE (a conversion module), not case-insensitive search.
+    private static final int IGNORE_CASE = 0x100;
     private OfficeSearch() {}
     public static String arguments(String query, String replacement, boolean backward,
                                    boolean matchCase, int mode) throws Exception {
@@ -18,7 +21,7 @@ public final class OfficeSearch {
             property("SearchItem.Command", "long", String.valueOf(mode)) + "," +
             property("SearchItem.AlgorithmType", "short", "0") + "," +
             property("SearchItem.SearchFlags", "long", "0") + "," +
-            property("SearchItem.TransliterateFlags", "long", matchCase ? "0" : "1") + "," +
+            property("SearchItem.TransliterateFlags", "long", String.valueOf(matchCase ? 0 : IGNORE_CASE)) + "," +
             property("SearchItem.Pattern", "boolean", "false") + "," +
             property("Quiet", "boolean", "true") + "}";
     }

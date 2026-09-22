@@ -8,7 +8,8 @@ assert len(rows) == 3
 find, replace, replace_all = [json.loads(row) for row in rows]
 assert find['SearchItem.SearchString']['value'] == 'Zażółć 😀 "cytat" \\ .* $1\n\t'
 assert find['SearchItem.Command']['value'] == 0
-assert find['SearchItem.TransliterateFlags']['value'] == 1
+# Official UNO TransliterationModules.idl: IGNORE_CASE=0x100; 1 is case conversion.
+assert find['SearchItem.TransliterateFlags']['value'] == 0x100
 assert replace['SearchItem.ReplaceString']['value'] == '$1\\nowa'
 assert replace['SearchItem.Command']['value'] == 2
 assert replace['SearchItem.Backward']['value'] is True

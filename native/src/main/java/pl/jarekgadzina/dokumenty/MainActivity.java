@@ -46,6 +46,7 @@ public class MainActivity extends FlutterActivity {
     private String currentExtension;
     private boolean editSave;
     private String currentName;
+    private Uri currentUri;
     private long documentId = 0;
     private static final Set<String> SUPPORTED = new HashSet<>(Arrays.asList(
         "pdf", "txt", "csv", "doc", "docx", "odt", "xls", "xlsx", "ods", "rtf"));
@@ -59,6 +60,7 @@ public class MainActivity extends FlutterActivity {
 
     @Override public void configureFlutterEngine(@NonNull FlutterEngine engine) {
         super.configureFlutterEngine(engine);
+        AppDiagnostics.install(this);
         channel = new MethodChannel(engine.getDartExecutor().getBinaryMessenger(), "dokumenty/files");
         initialUri = intentUri(getIntent());
         channel.setMethodCallHandler((call, result) -> {
@@ -113,9 +115,12 @@ public class MainActivity extends FlutterActivity {
                             }
                             final File editSource = source;
                             final String editExt = ext, editName = name;
+                            final String initialSaveUri = !newOffice && currentUri != null && "content".equals(currentUri.getScheme())
+                                && checkUriPermission(currentUri, android.os.Process.myPid(), android.os.Process.myUid(), Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                                    == android.content.pm.PackageManager.PERMISSION_GRANTED ? currentUri.toString() : null;
                             runOnUiThread(() -> {
                                 if (isFinishing() || isDestroyed()) { result.error("CLOSED", "Aplikacja została zamknięta.", null); return; }
-                                officeEditor = new OfficeEditor(this, editSource, editExt, editName, result, () -> officeEditor = null);
+                                officeEditor = new OfficeEditor(this, editSource, editExt, editName, initialSaveUri, result, () -> officeEditor = null);
                                 officeEditor.show();
                             });
                         } catch (Exception | LinkageError e) { runOnUiThread(() -> fail(result, e)); }
@@ -149,6 +154,7 @@ public class MainActivity extends FlutterActivity {
                     removeTree(new File(getFilesDir(), "recent-documents"));
                     return null;
                 }); break;
+                case "diagnostics": submit(result, () -> AppDiagnostics.read(this)); break;
                 case "licenses":
                     submit(result, () -> {
                         try (InputStream in = getAssets().open("third_party/NOTICE.txt")) {
@@ -203,6 +209,19 @@ public class MainActivity extends FlutterActivity {
                 return edited ? target.toString() : true;
             });
         }
+    }
+
+    void overwriteEdited(File output, String targetUri, MethodChannel.Result result) {
+        submit(result, () -> {
+            File backup = File.createTempFile("save-backup-", "." + currentExtension, getFilesDir());
+            try {
+                Uri target = Uri.parse(targetUri);
+                SafeSave.replace(output, backup,
+                    () -> getContentResolver().openInputStream(target),
+                    () -> getContentResolver().openOutputStream(target, "wt"));
+                return targetUri;
+            } finally { output.delete(); }
+        });
     }
 
     void beginEditSave(File output, String filename, String format, MethodChannel.Result result) {
@@ -273,7 +292,7 @@ public class MainActivity extends FlutterActivity {
             if (input.length() > 2 * 1024 * 1024) throw new IOException("Podgląd tekstu obsługuje pliki do 2 MB.");
             info.put("kind", "text"); info.put("text", decodeText(Files.readAllBytes(input.toPath())));
             rememberSafely(uri, input, name, extension, info);
-            currentSource = input; currentExtension = extension;
+            currentSource = input; currentExtension = extension; currentUri = uri;
             return info;
         }
         File preview = input;
@@ -303,7 +322,7 @@ public class MainActivity extends FlutterActivity {
             info.put("pageSizes", sizes);
             info.put("converted", !extension.equals("pdf"));
             rememberSafely(uri, input, name, extension, info);
-            currentSource = input; currentExtension = extension;
+            currentSource = input; currentExtension = extension; currentUri = uri;
             return info;
         } catch (Exception e) { closePdf(); throw e; }
     }
@@ -354,7 +373,7 @@ public class MainActivity extends FlutterActivity {
         if (pdf != null) { pdf.close(); pdf = null; }
         if (descriptor != null) { descriptor.close(); descriptor = null; }
         displayedPdf = null;
-        currentSource = null; currentExtension = null;
+        currentSource = null; currentExtension = null; currentUri = null;
     }
     private static void copy(InputStream in, OutputStream out, long limit) throws IOException {
         byte[] buffer = new byte[65536]; long total = 0; int n;

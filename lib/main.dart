@@ -227,7 +227,7 @@ class _ReaderHomeState extends State<ReaderHome> {
       _editing = false;
       if (uri != null && mounted) {
         await _open(uri, external: external);
-        if (mounted) _message('Zapisano nowy plik.');
+        if (mounted) _message('Zapisano dokument.');
       }
     } on PlatformException catch (e) {
       if (mounted) _message(e.message ?? 'Nie udało się otworzyć edytora.');
@@ -342,19 +342,26 @@ class _ReaderHomeState extends State<ReaderHome> {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Plikownik · 0.6.0'),
+        title: const Text('Plikownik · 0.7.0'),
         content: const SingleChildScrollView(
           child: Text(
             'Wersja testowa. Pliki otwierają się lokalnie, bez internetu.\n\n'
             'Dokumenty Office otrzymują podgląd PDF zgodny z ustawieniami wydruku. '
-            'Oryginały nie są zmieniane. Brakujące czcionki mogą zmienić układ.\n\n'
-            'Edycja DOCX, ODT, DOC i RTF w dokumencie oraz edycja TXT. Zapis przez „Zapisz jako”. Brak obsługi haseł i wyszukiwania w PDF. '
+            'Sam podgląd nie zmienia pliku. Brakujące czcionki mogą zmienić układ.\n\n'
+            'Edycja DOCX, ODT, DOC i RTF w dokumencie oraz edycja TXT. „Zapisz” aktualizuje plik, gdy aplikacja ma prawo zapisu; „Zapisz jako” tworzy kopię. Brak obsługi haseł i wyszukiwania w PDF. '
             'CSV jest wyświetlany jako tekst. Limit pliku: 100 MB; tekstu: 2 MB.\n\n'
             'Do renderowania użyto silnika LibreOffice 26.2.6.3. '
             'To niezależna aplikacja, nie oficjalny produkt The Document Foundation.',
           ),
         ),
         actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _diagnostics();
+            },
+            child: const Text('Kopiuj diagnostykę'),
+          ),
           TextButton(
             onPressed: () {
               Navigator.pop(context);
@@ -369,6 +376,16 @@ class _ReaderHomeState extends State<ReaderHome> {
         ],
       ),
     );
+  }
+
+  Future<void> _diagnostics() async {
+    try {
+      final text = await _bridge.invokeMethod<String>('diagnostics');
+      await Clipboard.setData(ClipboardData(text: text ?? 'Brak danych diagnostycznych.'));
+      if (mounted) _message('Skopiowano diagnostykę. Możesz wkleić ją do wiadomości.');
+    } on PlatformException catch (e) {
+      if (mounted) _message(e.message ?? 'Nie udało się odczytać diagnostyki.');
+    }
   }
 
   Future<void> _licenses() async {

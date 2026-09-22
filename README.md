@@ -1,7 +1,64 @@
-# Plikownik 0.6.0 — wersja testowa
+# Plikownik 0.7.0 — wersja testowa
 
 Prosty czytnik dokumentów na Androida, interfejs we Flutterze.
 Silnik LibreOffice 26.2.6.3 pracuje wewnątrz aplikacji, bez serwera i bez instalowania drugiej aplikacji.
+
+## Nowości 0.7.0
+
+- Poprawiono błędny parametr wyszukiwania przy wyłączonym rozróżnianiu wielkości liter:
+  `TransliterationModules.IGNORE_CASE` ma wartość **256**, a nie **1**. Wartość 1 oznacza
+  moduł konwersji na małe litery. Włączone rozróżnianie nadal przekazuje 0.
+  Źródło: [definicja UNO](https://github.com/LibreOffice/core/blob/master/offapi/com/sun/star/i18n/TransliterationModules.idl).
+  Test regresji sprawdza obie wartości. Związek tego błędu z konkretnym zamknięciem aplikacji
+  wymaga jeszcze potwierdzenia na urządzeniu.
+
+- Edytor Office ma nowy interfejs: jasne tło, zielone akcenty, zaokrąglone przyciski,
+  nazwę dokumentu i stały przycisk Zapisz. Narzędzia są w grupach **Tekst / Akapit / Narzędzia / Plik**.
+- Okna rozmiaru czcionki, potwierdzenia zamiany, błędów i wyjścia mają wspólny nowy wygląd.
+  Okno wyjścia oferuje **Zapisz i wyjdź / Odrzuć zmiany / Edytuj dalej**.
+  Większe okna przewijają się, gdy telefon jest poziomo lub ma powiększoną czcionkę systemową.
+- Zastąpiono systemową listę rozmiarów czcionki siatką przycisków. Polecenie formatujące
+  jest wysyłane dopiero po zamknięciu okna. Argument FontHeight ma sprawdzony format JSON
+  z wartością tekstową, a rozmiar jest ograniczony do 8–72 pkt.
+  **Przyczyna zgłoszonego zamykania aplikacji nie jest potwierdzona logiem ani odtworzeniem na telefonie.**
+  Zmiana tej ścieżki wymaga sprawdzenia opisanym poniżej testem.
+- **Zapisz** aktualizuje otwarty plik, jeśli Android przyznał aplikacji prawo zapisu do jego URI.
+  W przeciwnym razie najpierw wybierasz miejsce na kopię. Kolejne zapisy w tej samej edycji
+  aktualizują wybraną kopię bez okna wyboru. Po zapisie pozostajesz w edytorze.
+  Uprawnienia mogą wygasnąć po zamknięciu aplikacji; przy odmowie wybierz Zapisz jako.
+- **Zapisz jako** i **Eksport PDF** są w grupie Plik. PDF nie oznacza dokumentu jako zapisanego.
+- Przed nadpisaniem aplikacja tworzy kopię wcześniejszych bajtów pliku. Jeżeli zapis się nie powiedzie,
+  próbuje je przywrócić. Gdy również przywracanie zawiedzie, zachowuje kopię w prywatnej pamięci
+  i wyświetla błąd. Nie jest to atomowy zapis dla wszystkich dostawców plików.
+- W „O aplikacji” dostępne jest **Kopiuj diagnostykę**: wersja, ostatnia operacja, błąd Java
+  oraz dostępne systemowe informacje o zakończeniu procesu. Dane pozostają lokalnie;
+  nic nie jest automatycznie wysyłane. Przycisk kopiuje raport do schowka.
+- Nowy układ i zwykły zapis dotyczą edytora Office. Edytor TXT nadal korzysta z Fluttera i Zapisz jako.
+
+### Do przetestowania w 0.7.0
+
+1. **Rozmiar czcionki:** w kopii DOCX zaznacz słowo i wybierz kolejno 12, 18, 24 i 12 pkt.
+   Powtórz bez zaznaczenia, wpisując kilka znaków po zmianie; otwórz i anuluj okno wyboru.
+   Jeżeli aplikacja się zamknie, uruchom ją ponownie → O aplikacji → Kopiuj diagnostykę.
+   Wklej raport i dopisz, czy zamknęła się przy otwieraniu okna, czy po wybraniu liczby.
+2. **Wyszukiwanie:** włącz i wyłącz „Rozróżniaj wielkość liter”, szukaj dalej i zamień słowo.
+   To osobna kontrolka od rozmiaru czcionki — sprawdź, czy ona również działa bez zamknięcia.
+3. **Układ:** sprawdź cztery grupy przycisków i przewijanie poziome dłuższych pasków.
+   Otwórz okno rozmiaru i okno wyjścia pionowo, poziomo oraz z widoczną klawiaturą.
+4. **Zapis:** zapisz kopię, zmień kolejne zdanie i naciśnij Zapisz. Za drugim razem nie powinno
+   być wyboru folderu. Wyjdź i otwórz kopię ponownie — powinna zawierać obie zmiany.
+   Osobno sprawdź anulowanie pierwszego wyboru pliku oraz Zapisz jako do innej kopii.
+5. **Wyjście:** sprawdź osobno Zapisz i wyjdź, Odrzuć zmiany i Edytuj dalej.
+   Po anulowaniu okna wyboru pliku edytor powinien pozostać otwarty z wprowadzonym tekstem.
+6. **Regresja:** B/I/U, obie listy, cofanie i PDF. Otwórz wynik w LibreOffice na komputerze.
+   Przy pliku z komunikatora zamknij edytor, a potem podgląd — wróć do komunikatora.
+
+Lokalnie przeszła kompilacja Java z API Androida i atrapami interfejsów Fluttera oraz testy
+argumentów rozmiaru i zapisu (sukces, przerwany zapis, przywrócenie, brak dostępu do odczytu,
+zachowanie kopii przy nieudanym przywróceniu). Nie wykonano lokalnie flutter analyze, testów Flutter,
+renderowania UI na Androidzie ani próby APK na telefonie. GitHub Actions wykonuje analizę,
+testy i pełne budowanie; scenariusze interfejsu powyżej pozostają do sprawdzenia na urządzeniu.
+Automatyczne odzyskiwanie niezapisanej sesji nie jest jeszcze zaimplementowane.
 
 ## Nowości 0.6.0
 
@@ -94,7 +151,8 @@ Test tworzenia DOCX nie jest testem zapisu przez żywy silnik.
 - DOCX, ODT, DOC, RTF, XLSX, ODS i XLS: lokalna konwersja do podglądu PDF przez LibreOffice.
 - Zapis kopii podglądu PDF do wybranego folderu. TXT/CSV nie mają jeszcze eksportu PDF.
 - Jasny i ciemny interfejs zgodny z ustawieniem telefonu; papier dokumentu pozostaje biały.
-- Operacje edycji tworzą nowy plik przez „Zapisz jako”. Podgląd nie zmienia oryginału. Nie zawiera uprawnienia do internetu w wersji release.
+- Podgląd nie zmienia pliku. W edytorze Office Zapisz może aktualizować plik, a Zapisz jako tworzy kopię.
+  Aplikacja nie zawiera uprawnienia do internetu w wersji release.
 
 **To prototyp do testów, nie zweryfikowany produkt końcowy.** Sprawdzono składnię Dart, strukturę projektu,
 kompletność zasobów silnika, sumę kontrolną pakietu i obecność używanych funkcji JNI.
@@ -109,7 +167,7 @@ nie dowodzą poprawności renderowania LibreOffice.
    `pubspec.yaml` musi być bezpośrednio w katalogu repozytorium. Skopiuj również `.github` i `.gitignore`.
 3. Zrób Commit, następnie Push origin.
 4. Otwórz Actions → „Zbuduj Plikownik APK”. Pierwszy build pobiera dodatkowo około 84 MB silnika.
-5. Gdy build będzie zielony, pobierz artefakt `plikownik-0.6.0-apk`.
+5. Gdy build będzie zielony, pobierz artefakt `plikownik-0.7.0-apk`.
 6. Rozpakuj artefakt, prześlij `app-release.apk` na telefon i zainstaluj.
 7. Otwórz aplikację i wybierz plik. Przy pierwszym dokumencie Office nastąpi przygotowanie silnika.
 8. Aby otwierać pliki domyślnie: w menedżerze plików wybierz dokument → Otwórz za pomocą → Plikownik →
@@ -135,7 +193,7 @@ testowymi eksportami.
 - Limit pliku: 100 MB. TXT/CSV: 2 MB, automatyczne UTF-8/UTF-16 z BOM, w razie błędu UTF-8 Windows-1250.
 - Pliki z błędnym rozszerzeniem, nietypową zawartością lub nieprawidłowym typem MIME mogą się nie otworzyć.
 - Kopie robocze są w prywatnej pamięci podręcznej aplikacji. Stare kopie są sprzątane przy otwieraniu plików
-  po upływie doby; Android również może wyczyścić cache. Oryginalne pliki pozostają w swoich folderach.
+  po upływie doby; Android również może wyczyścić cache. Pliki źródłowe pozostają w swoich folderach.
 - Dostawca plików z chmury może potrzebować internetu, by pobrać plik. Sama aplikacja go nie pobiera —
   do pracy offline wybieraj dokumenty już zapisane na telefonie.
 

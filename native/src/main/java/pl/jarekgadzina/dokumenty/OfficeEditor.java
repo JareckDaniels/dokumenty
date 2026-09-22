@@ -1,6 +1,5 @@
 package pl.jarekgadzina.dokumenty;
 
-import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -30,7 +29,11 @@ final class OfficeEditor {
     private Dialog dialog;
     private PageView page;
     private TextView status;
-    private LinearLayout controls, searchPanel;
+    private LinearLayout controls, searchPanel, toolbarArea, tabRow;
+    private Button saveButton, sizeButton;
+    private EditorUi.Sheet popup;
+    private String savedUri;
+    private final java.util.Map<String, Boolean> formatStates = new java.util.HashMap<>();
     private EditText searchText, replaceText;
     private CheckBox matchCase;
     private boolean searchPending, searchMiss;
@@ -43,10 +46,10 @@ final class OfficeEditor {
     private final List<RectF> selection = new ArrayList<>();
     private final java.util.Map<String, Button> toggles = new java.util.HashMap<>();
 
-    OfficeEditor(MainActivity activity, File source, String extension, String filename,
+    OfficeEditor(MainActivity activity, File source, String extension, String filename, String initialSaveUri,
                  MethodChannel.Result result, Runnable onClosed) {
         this.activity = activity; this.source = source; this.extension = extension;
-        this.filename = filename; this.result = result; this.onClosed = onClosed;
+        this.filename = filename; this.savedUri = initialSaveUri; this.result = result; this.onClosed = onClosed;
     }
 
     void show() {
@@ -54,40 +57,38 @@ final class OfficeEditor {
             @Override public void cancel() { leave(); }
         };
         LinearLayout root = new LinearLayout(activity); root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.WHITE);
+        root.setBackgroundColor(EditorUi.BG);
         // Respect status/navigation bars, including Android 15 edge-to-edge enforcement.
         root.setOnApplyWindowInsetsListener((v, insets) -> {
             v.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
                 insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
             return insets;
         });
-        LinearLayout header = new LinearLayout(activity);
-        addButton(header, "Wstecz", this::leave);
-        TextView title = new TextView(activity); title.setText("Edytuj dokument"); title.setTextSize(18);
-        title.setGravity(Gravity.CENTER_VERTICAL);
-        header.addView(title, new LinearLayout.LayoutParams(0, -1, 1));
-        root.addView(header);
-        HorizontalScrollView toolbar = new HorizontalScrollView(activity);
-        controls = new LinearLayout(activity); toolbar.addView(controls);
-        addButton(controls, "Zapisz jako", () -> save(false));
-        addButton(controls, "PDF", () -> save(true));
-        addButton(controls, "↶ Cofnij", () -> command("Undo", null));
-        addButton(controls, "↷ Ponów", () -> command("Redo", null));
-        toggle("B", "Bold"); toggle("I", "Italic"); toggle("U", "Underline");
-        addButton(controls, "Rozmiar", this::chooseSize);
-        toggle("• Lista", "DefaultBullet");
-        toggle("1. Lista", "DefaultNumbering");
-        addButton(controls, "Szukaj / zamień", this::toggleSearch);
-        addButton(controls, "Do lewej", () -> command("LeftPara", null));
-        addButton(controls, "Wyśrodkuj", () -> command("CenterPara", null));
-        addButton(controls, "Do prawej", () -> command("RightPara", null));
-        addButton(controls, "Kopiuj", () -> clipboard(false));
-        addButton(controls, "Wytnij", () -> clipboard(true));
-        addButton(controls, "Wklej", this::pasteClipboard);
-        addButton(controls, "Zaznacz wszystko", () -> command("SelectAll", null));
-        root.addView(toolbar);
+        LinearLayout header = new LinearLayout(activity); header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(dp(8),dp(4),dp(12),dp(4));
+        Button back = EditorUi.button(activity,"‹",this::leave,false);
+        back.setTextSize(26); back.setContentDescription("Wróć do podglądu"); header.addView(back,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        LinearLayout heading = new LinearLayout(activity); heading.setOrientation(LinearLayout.VERTICAL);
+        heading.setPadding(dp(8),0,dp(8),0);
+        TextView title = EditorUi.label(activity,filename,16,EditorUi.INK);
+        title.setSingleLine(true); title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        title.setTypeface(Typeface.create("sans-serif-medium",0));
+        heading.addView(title); heading.addView(EditorUi.label(activity,"PLIKOWNIK · EDYCJA",10,EditorUi.MUTED));
+        header.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
+        saveButton = EditorUi.button(activity,"Zapisz",() -> save(false,false,false),true);
+        header.addView(saveButton,new LinearLayout.LayoutParams(-2,dp(48))); root.addView(header);
+        toolbarArea = new LinearLayout(activity); toolbarArea.setOrientation(LinearLayout.VERTICAL);
+        HorizontalScrollView tabs = new HorizontalScrollView(activity); tabs.setHorizontalScrollBarEnabled(false);
+        tabRow = new LinearLayout(activity); tabRow.setPadding(dp(8),0,dp(8),0); tabs.addView(tabRow); toolbarArea.addView(tabs);
+        for (String name : new String[]{"Tekst", "Akapit", "Narzędzia", "Plik"}) {
+            Button tab = EditorUi.button(activity,name,() -> showTab(name),false); tab.setTag(name);
+            tabRow.addView(tab,new LinearLayout.LayoutParams(-2,dp(44)));
+        }
+        HorizontalScrollView toolbar = new HorizontalScrollView(activity); toolbar.setHorizontalScrollBarEnabled(false);
+        controls = new LinearLayout(activity); controls.setPadding(dp(8),dp(4),dp(8),dp(4)); toolbar.addView(controls);
+        toolbarArea.addView(toolbar); root.addView(toolbarArea); showTab("Tekst");
         buildSearchPanel(root);
-        status = new TextView(activity); status.setPadding(16, 4, 16, 6);
+        status = EditorUi.label(activity,"",12,EditorUi.MUTED); status.setPadding(dp(16),dp(4),dp(16),dp(6)); status.setMaxLines(2); status.setEllipsize(android.text.TextUtils.TruncateAt.END);
         status.setText("Otwieranie edytora…"); root.addView(status);
         page = new PageView(); root.addView(page, new LinearLayout.LayoutParams(-1, 0, 1));
         dialog.setContentView(root);
@@ -97,6 +98,10 @@ final class OfficeEditor {
         });
         dialog.setCancelable(true); dialog.setCanceledOnTouchOutside(false); dialog.show();
         dialog.getWindow().setLayout(-1, -1);
+        dialog.getWindow().setStatusBarColor(EditorUi.BG);
+        dialog.getWindow().setNavigationBarColor(EditorUi.BG);
+        dialog.getWindow().getDecorView().setSystemUiVisibility(
+            View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         setBusy(true);
         MainActivity.WORKER.execute(() -> {
@@ -121,21 +126,62 @@ final class OfficeEditor {
         });
     }
 
+    private int dp(int value) { return EditorUi.dp(activity,value); }
+    private void showTab(String tab) {
+        controls.removeAllViews(); toggles.clear();
+        for (int i=0;i<tabRow.getChildCount();i++) {
+            Button b=(Button)tabRow.getChildAt(i); EditorUi.style(b,false,tab.equals(b.getTag()));
+        }
+        switch (tab) {
+            case "Tekst":
+                toggle("B", "Bold"); toggle("I", "Italic"); toggle("U", "Underline");
+                addButton(controls,"Rozmiar ▾",this::chooseSize);
+                sizeButton = (Button) controls.getChildAt(controls.getChildCount()-1);
+                sizeButton.setContentDescription("Zmień rozmiar czcionki");
+                break;
+            case "Akapit":
+                toggle("• Lista", "DefaultBullet"); toggle("1. Lista", "DefaultNumbering");
+                addButton(controls,"Do lewej",() -> command("LeftPara",null));
+                addButton(controls,"Środek",() -> command("CenterPara",null));
+                addButton(controls,"Do prawej",() -> command("RightPara",null));
+                break;
+            case "Narzędzia":
+                addButton(controls,"↶ Cofnij",() -> command("Undo",null));
+                addButton(controls,"↷ Ponów",() -> command("Redo",null));
+                addButton(controls,"Szukaj / zamień",this::toggleSearch);
+                addButton(controls,"Kopiuj",() -> clipboard(false));
+                addButton(controls,"Wytnij",() -> clipboard(true));
+                addButton(controls,"Wklej",this::pasteClipboard);
+                addButton(controls,"Zaznacz wszystko",() -> command("SelectAll",null));
+                break;
+            case "Plik":
+                addButton(controls,"Zapisz jako…",() -> save(false,true,false));
+                addButton(controls,"Eksport PDF",() -> save(true,true,false));
+                break;
+        }
+        enableSearch(controls,!busy);
+    }
     private void addButton(LinearLayout row, String label, Runnable action) {
-        Button button = new Button(activity); button.setText(label); button.setAllCaps(false);
-        button.setMinWidth(0); button.setMinimumWidth(0); button.setFocusable(false);
-        button.setOnClickListener(v -> action.run()); row.addView(button);
+        Button button = EditorUi.button(activity,label,action,false);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2,dp(48)); lp.rightMargin=dp(4);
+        row.addView(button,lp);
     }
     private void toggle(String label, String command) {
         addButton(controls, label, () -> command(command, null));
-        toggles.put(".uno:" + command, (Button) controls.getChildAt(controls.getChildCount() - 1));
+        Button button = (Button) controls.getChildAt(controls.getChildCount() - 1);
+        toggles.put(".uno:" + command, button);
+        EditorUi.style(button,false,Boolean.TRUE.equals(formatStates.get(".uno:"+command)));
+        if (command.equals("Bold")) button.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        if (command.equals("Italic")) button.setTypeface(Typeface.DEFAULT,Typeface.ITALIC);
+        if (command.equals("Underline")) button.setPaintFlags(button.getPaintFlags()|Paint.UNDERLINE_TEXT_FLAG);
     }
     private void setBusy(boolean value) {
         busy = value;
-        for (int i = 0; i < controls.getChildCount(); i++) controls.getChildAt(i).setEnabled(!value);
+        enableSearch(controls,!value); enableSearch(tabRow,!value); saveButton.setEnabled(!value);
         enableSearch(searchPanel, !value);
     }
     private void enableSearch(View view, boolean enabled) {
+        if (view == null) return;
         view.setEnabled(enabled);
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
@@ -144,7 +190,7 @@ final class OfficeEditor {
     }
     private void buildSearchPanel(LinearLayout root) {
         searchPanel = new LinearLayout(activity); searchPanel.setOrientation(LinearLayout.VERTICAL);
-        searchPanel.setPadding(12, 0, 12, 0); searchPanel.setVisibility(View.GONE);
+        searchPanel.setPadding(dp(12), 0, dp(12), 0); searchPanel.setVisibility(View.GONE);
         LinearLayout fields = new LinearLayout(activity);
         searchText = new EditText(activity); searchText.setSingleLine(true); searchText.setHint("Znajdź tekst");
         searchText.setContentDescription("Szukany tekst");
@@ -152,10 +198,11 @@ final class OfficeEditor {
         replaceText.setContentDescription("Tekst zastępujący; puste pole usuwa znaleziony tekst");
         searchText.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(1000)});
         replaceText.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(1000)});
+        EditorUi.field(searchText); EditorUi.field(replaceText);
         fields.addView(searchText, new LinearLayout.LayoutParams(0, -2, 1));
         fields.addView(replaceText, new LinearLayout.LayoutParams(0, -2, 1));
         searchPanel.addView(fields);
-        matchCase = new CheckBox(activity); matchCase.setText("Rozróżniaj wielkość liter"); searchPanel.addView(matchCase);
+        matchCase = new CheckBox(activity); matchCase.setText("Rozróżniaj wielkość liter"); matchCase.setTextSize(13); matchCase.setTextColor(EditorUi.INK); matchCase.setButtonTintList(android.content.res.ColorStateList.valueOf(EditorUi.GREEN)); searchPanel.addView(matchCase);
         HorizontalScrollView scroll = new HorizontalScrollView(activity);
         LinearLayout actions = new LinearLayout(activity); scroll.addView(actions);
         addButton(actions, "Poprzedni", () -> search(OfficeSearch.FIND, true));
@@ -163,10 +210,9 @@ final class OfficeEditor {
         addButton(actions, "Zamień", () -> search(OfficeSearch.REPLACE, false));
         addButton(actions, "Zamień wszystkie", () -> {
             if (searchText.length() == 0) { searchText.setError("Wpisz szukany tekst"); return; }
-            new AlertDialog.Builder(activity).setTitle("Zamienić wszystkie wystąpienia?")
-                .setMessage("Zamiana obejmie cały dokument. Możesz ją cofnąć przyciskiem Cofnij.")
-                .setNegativeButton("Anuluj", null)
-                .setPositiveButton("Zamień wszystkie", (d, w) -> search(OfficeSearch.REPLACE_ALL, false)).show();
+            EditorUi.Sheet sheet = sheet("Zamienić wszystkie wystąpienia?", "Zmiana obejmie cały dokument. Możesz ją cofnąć w zakładce Narzędzia.");
+            sheet.action("Zamień wszystkie",true,() -> search(OfficeSearch.REPLACE_ALL,false));
+            sheet.action("Anuluj",false,() -> {}); sheet.show();
         });
         addButton(actions, "Zamknij", this::toggleSearch);
         searchPanel.addView(scroll); root.addView(searchPanel);
@@ -180,6 +226,7 @@ final class OfficeEditor {
         if (closed || busy) return;
         boolean show = searchPanel.getVisibility() != View.VISIBLE;
         page.resetInput(); searchPanel.setVisibility(show ? View.VISIBLE : View.GONE);
+        toolbarArea.setVisibility(show ? View.GONE : View.VISIBLE);
         if (show) {
             searchText.requestFocus();
             status.setText("Znajdź fragment, a następnie użyj Zamień. Puste pole zamiany usuwa tekst.");
@@ -202,7 +249,7 @@ final class OfficeEditor {
         enableSearch(searchPanel, false);
         status.setText(mode == OfficeSearch.FIND ? "Wyszukiwanie…" : "Zamiana tekstu…");
         edit(doc -> {
-            try { doc.postUnoCommand(".uno:ExecuteSearch", args, true); }
+            try { AppDiagnostics.mark(activity,"Wyszukiwanie: tryb "+mode); doc.postUnoCommand(".uno:ExecuteSearch", args, true); }
             catch (Exception e) {
                 activity.runOnUiThread(() -> {
                     searchPending = false;
@@ -212,11 +259,32 @@ final class OfficeEditor {
             }
         }, mode != OfficeSearch.FIND);
     }
+    private EditorUi.Sheet sheet(String title, String description) {
+        if (popup != null) popup.dialog.dismiss();
+        popup = new EditorUi.Sheet(activity,title,description); return popup;
+    }
     private void chooseSize() {
-        final String[] sizes = {"8", "10", "11", "12", "14", "16", "18", "20", "24", "28", "32", "36", "48", "72"};
-        new AlertDialog.Builder(activity).setTitle("Rozmiar czcionki (pkt)")
-            .setItems(sizes, (d, i) -> command("FontHeight", "{\"FontHeight\":{\"type\":\"float\",\"value\":" + sizes[i] + "}}"))
-            .setNegativeButton("Anuluj", null).show();
+        if (busy || closed) return;
+        page.resetInput();
+        MainActivity.WORKER.execute(() -> AppDiagnostics.mark(activity,"Wybór rozmiaru czcionki"));
+        EditorUi.Sheet sheet = sheet("Rozmiar czcionki", "Zaznaczony tekst lub tekst wpisywany od kursora.");
+        final int[] sizes = {8,10,11,12,14,16,18,20,24,28,32,36,48,72};
+        LinearLayout row = null;
+        for (int i=0;i<sizes.length;i++) {
+            if (i%4 == 0) { row=new LinearLayout(activity); sheet.body.addView(row); }
+            final int points = sizes[i];
+            Button b = EditorUi.button(activity,points+"",() -> {
+                sheet.dialog.dismiss();
+                // Let the popup window detach before restarting IME and sending a native edit.
+                page.post(() -> {
+                    if (closed || busy) return;
+                    command("FontHeight",OfficeFormatting.fontSize(points));
+                    if (sizeButton != null) sizeButton.setText(points+" pkt ▾");
+                });
+            },false);
+            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,dp(48),1); lp.setMargins(dp(2),dp(2),dp(2),dp(2)); row.addView(b,lp);
+        }
+        sheet.action("Anuluj",false,() -> {}); sheet.show();
     }
     private interface Edit { void run(Document doc) throws Exception; }
     private void edit(Edit action, boolean changes) {
@@ -231,7 +299,10 @@ final class OfficeEditor {
     }
     private void command(String command, String args) {
         page.resetInput();
-        edit(doc -> doc.postUnoCommand(".uno:" + command, args, false), !command.equals("SelectAll"));
+        edit(doc -> {
+            AppDiagnostics.mark(activity,"Polecenie .uno:"+command);
+            doc.postUnoCommand(".uno:" + command,args,false);
+        }, !command.equals("SelectAll"));
     }
     private void key(Document doc, int character, int code) {
         doc.postKeyEvent(Document.KEY_EVENT_PRESS, character, code);
@@ -270,14 +341,17 @@ final class OfficeEditor {
         page.resetInput(); type(text.toString(), 0);
     }
     private void error(String message) {
-        if (!closed) new AlertDialog.Builder(activity).setTitle("Edycja dokumentu")
-            .setMessage(message == null ? "Operacja nie powiodła się." : message).setPositiveButton("OK", null).show();
+        if (closed) return;
+        EditorUi.Sheet sheet=sheet("Nie udało się wykonać operacji",message == null ? "Spróbuj ponownie." : message);
+        sheet.action("Rozumiem",true,() -> {}); sheet.show();
     }
     private void leave() {
         if (saving) return;
-        if (!dirty) { finish(null); return; }
-        new AlertDialog.Builder(activity).setTitle("Odrzucić niezapisane zmiany?")
-            .setNegativeButton("Edytuj dalej", null).setPositiveButton("Odrzuć", (d, w) -> finish(null)).show();
+        if (!dirty) { finish(savedUri); return; }
+        EditorUi.Sheet sheet=sheet("Zapisać zmiany?", "W dokumencie są niezapisane zmiany. Wybierz, co zrobić przed powrotem do podglądu.");
+        sheet.action("Zapisz i wyjdź",true,() -> save(false,false,true));
+        sheet.action("Odrzuć zmiany",false,() -> finish(savedUri));
+        sheet.action("Edytuj dalej",false,() -> {}); sheet.show();
     }
     private void finish(String uri) {
         if (closed) return;
@@ -287,13 +361,14 @@ final class OfficeEditor {
         if (closed) return;
         closed = true;
         if (page != null) { page.finishComposition(); page.removeCallbacks(renderTask); }
+        if (popup != null) popup.dialog.dismiss();
         if (dialog != null) dialog.dismiss();
         MainActivity.WORKER.execute(() -> {
             if (document != null) { document.setMessageCallback(null); document.destroy(); document = null; }
         });
         onClosed.run();
     }
-    private void save(boolean pdf) {
+    private void save(boolean pdf, boolean chooseNew, boolean leaveAfter) {
         if (busy || closed) return;
         page.resetInput(); saving = true; setBusy(true); status.setText("Przygotowywanie pliku…");
         String ext = pdf ? "pdf" : extension;
@@ -308,18 +383,24 @@ final class OfficeEditor {
                 activity.runOnUiThread(() -> {
                     if (closed) { ready.delete(); return; }
                     String name = filename.replaceFirst("\\.[^.]+$", "") + (pdf ? "" : "-edycja") + "." + ext;
-                    activity.beginEditSave(ready, name, ext, new MethodChannel.Result() {
+                    MethodChannel.Result completion = new MethodChannel.Result() {
                         public void success(Object value) {
                             if (closed) return;
                             saving = false; setBusy(false);
                             status.setText(value == null ? "Anulowano zapis. Zmiany są nadal w edytorze." : "Zapisano plik.");
-                            if (value instanceof String && !pdf) { dirty = false; finish((String) value); }
+                            if (value instanceof String && !pdf) {
+                                savedUri = (String) value; dirty = false;
+                                if (leaveAfter) finish(savedUri);
+                                else { status.setText("Zapisano. Możesz kontynuować edycję."); requestRender(); }
+                            }
                         }
                         public void error(String code, String message, Object details) {
                             ready.delete(); if (!closed) { saving = false; setBusy(false); OfficeEditor.this.error(message); }
                         }
                         public void notImplemented() { error("SAVE", "Zapis jest niedostępny.", null); }
-                    });
+                    };
+                    if (!pdf && !chooseNew && savedUri != null) activity.overwriteEdited(ready,savedUri,completion);
+                    else activity.beginEditSave(ready, name, ext, completion);
                 });
             } catch (Exception e) {
                 if (output != null) output.delete();
@@ -380,8 +461,9 @@ final class OfficeEditor {
         } else if (signal == Document.CALLBACK_STATE_CHANGED && payload != null) {
             int split = payload.indexOf('=');
             if (split > 0) {
+                formatStates.put(payload.substring(0,split),payload.substring(split+1).equals("true"));
                 Button button = toggles.get(payload.substring(0, split));
-                if (button != null) button.setTextColor(payload.substring(split + 1).equals("true") ? Color.rgb(0, 110, 180) : Color.BLACK);
+                if (button != null) EditorUi.style(button,false,payload.substring(split + 1).equals("true"));
             }
         }
     }
