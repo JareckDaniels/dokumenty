@@ -200,7 +200,9 @@ class _ReaderHomeState extends State<ReaderHome> {
     if (_busy || _editing) return;
     final source = newFormat == null ? _document : null;
     final format = newFormat ?? source?['extension'] as String?;
-    if (format == null || (format != 'docx' && format != 'txt')) return;
+    if (format == null ||
+        !['docx', 'odt', 'doc', 'rtf', 'txt'].contains(format))
+      return;
     if (format == 'txt' &&
         ((source?['text'] as String?)?.length ?? 0) > 200000) {
       _message(
@@ -211,16 +213,24 @@ class _ReaderHomeState extends State<ReaderHome> {
     _editing = true;
     final external = _externalMode;
     try {
-      final uri = await Navigator.of(context).push<String>(
-        MaterialPageRoute(
-          builder: (_) => DocumentEditor(format: format, document: source),
-        ),
-      );
+      final uri = format == 'txt'
+          ? await Navigator.of(context).push<String>(
+              MaterialPageRoute(
+                builder: (_) =>
+                    DocumentEditor(format: format, document: source),
+              ),
+            )
+          : await _bridge.invokeMethod<String>('openEditor', {
+              'documentId': source?['documentId'],
+              'createNew': source == null,
+            });
       _editing = false;
       if (uri != null && mounted) {
         await _open(uri, external: external);
         if (mounted) _message('Zapisano nowy plik.');
       }
+    } on PlatformException catch (e) {
+      if (mounted) _message(e.message ?? 'Nie udało się otworzyć edytora.');
     } finally {
       _editing = false;
       _drain();
@@ -332,13 +342,13 @@ class _ReaderHomeState extends State<ReaderHome> {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Dokumenty · 0.4.0'),
+        title: const Text('Dokumenty · 0.5.0'),
         content: const SingleChildScrollView(
           child: Text(
             'Wersja testowa. Pliki otwierają się lokalnie, bez internetu.\n\n'
             'Dokumenty Office otrzymują podgląd PDF zgodny z ustawieniami wydruku. '
             'Oryginały nie są zmieniane. Brakujące czcionki mogą zmienić układ.\n\n'
-            'Edycja: dopisywanie na końcu DOCX oraz edycja TXT, z zapisem do nowego pliku. Brak obsługi haseł i wyszukiwania w PDF. '
+            'Edycja DOCX, ODT, DOC i RTF w dokumencie oraz edycja TXT. Zapis przez „Zapisz jako”. Brak obsługi haseł i wyszukiwania w PDF. '
             'CSV jest wyświetlany jako tekst. Limit pliku: 100 MB; tekstu: 2 MB.\n\n'
             'Do renderowania użyto silnika LibreOffice 26.2.6.3. '
             'To niezależna aplikacja, nie oficjalny produkt The Document Foundation.',
@@ -420,13 +430,16 @@ class _ReaderHomeState extends State<ReaderHome> {
           ),
           actions: [
             if (document != null &&
-                (document['extension'] == 'docx' ||
-                    document['extension'] == 'txt'))
+                [
+                  'docx',
+                  'odt',
+                  'doc',
+                  'rtf',
+                  'txt',
+                ].contains(document['extension']))
               IconButton(
                 onPressed: locked ? null : () => _editDocument(),
-                tooltip: document['extension'] == 'docx'
-                    ? 'Dopisz do DOCX'
-                    : 'Edytuj TXT',
+                tooltip: 'Edytuj dokument',
                 icon: const Icon(Icons.edit_outlined),
               ),
             if (document != null)

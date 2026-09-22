@@ -14,10 +14,7 @@ class _DocumentEditorState extends State<DocumentEditor> {
   late final TextEditingController _text;
   late final TextEditingController _name;
   bool _dirty = false, _saving = false, _allowPop = false, _asking = false;
-  bool _bold = false, _italic = false;
-  int _fontSize = 12;
   String? _error;
-  bool get _append => widget.document != null && widget.format == 'docx';
 
   @override
   void initState() {
@@ -77,10 +74,6 @@ class _DocumentEditorState extends State<DocumentEditor> {
       setState(() => _error = 'Limit edytora to 200 000 znaków.');
       return;
     }
-    if (_append && _text.text.trim().isEmpty) {
-      setState(() => _error = 'Wpisz tekst, który chcesz dopisać.');
-      return;
-    }
     String name = _name.text.trim();
     if (name.isEmpty || name.contains('/') || name.contains('\\')) {
       setState(() => _error = 'Podaj nazwę pliku bez ścieżki folderu.');
@@ -97,9 +90,6 @@ class _DocumentEditorState extends State<DocumentEditor> {
         'format': widget.format,
         'filename': name,
         'text': _text.text,
-        'fontSize': _fontSize,
-        'bold': _bold,
-        'italic': _italic,
         'createNew': widget.document == null,
         'documentId': widget.document?['documentId'],
       });
@@ -135,11 +125,7 @@ class _DocumentEditorState extends State<DocumentEditor> {
           icon: const Icon(Icons.arrow_back),
         ),
         title: Text(
-          _append
-              ? 'Dopisz do DOCX'
-              : widget.document == null
-              ? 'Nowy dokument'
-              : 'Edytuj TXT',
+          widget.document == null ? 'Nowy dokument TXT' : 'Edytuj TXT',
         ),
         actions: [
           TextButton.icon(
@@ -164,82 +150,16 @@ class _DocumentEditorState extends State<DocumentEditor> {
                 ),
               ),
             ),
-            if (_append)
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Text(
-                  'Ten tekst zostanie dodany na końcu dokumentu. Dotychczasowa treść, tabele i obrazki zostaną zachowane.',
-                ),
-              ),
-            if (widget.format == 'docx')
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Wrap(
-                  spacing: 12,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    DropdownButton<int>(
-                      value: _fontSize,
-                      items:
-                          [
-                                8,
-                                10,
-                                11,
-                                12,
-                                14,
-                                16,
-                                18,
-                                20,
-                                24,
-                                28,
-                                32,
-                                36,
-                                48,
-                                72,
-                              ]
-                              .map(
-                                (size) => DropdownMenuItem(
-                                  value: size,
-                                  child: Text('$size pkt'),
-                                ),
-                              )
-                              .toList(),
-                      onChanged: _saving
-                          ? null
-                          : (size) => setState(() {
-                              _fontSize = size!;
-                              _dirty = true;
-                            }),
-                    ),
-                    FilterChip(
-                      label: const Text('Pogrubienie'),
-                      selected: _bold,
-                      onSelected: _saving
-                          ? null
-                          : (value) => setState(() {
-                              _bold = value;
-                              _dirty = true;
-                            }),
-                    ),
-                    FilterChip(
-                      label: const Text('Kursywa'),
-                      selected: _italic,
-                      onSelected: _saving
-                          ? null
-                          : (value) => setState(() {
-                              _italic = value;
-                              _dirty = true;
-                            }),
-                    ),
-                  ],
-                ),
-              ),
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.all(12),
                 child: Text(
                   _error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  style: const TextStyle(fontSize: 17),
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    hintText: 'Zacznij pisać…',
+                  ),
                 ),
               ),
             Expanded(

@@ -1,26 +1,30 @@
-# Dokumenty 0.4.0 — wersja testowa
+# Dokumenty 0.5.0 — wersja testowa
 
 Prosty czytnik dokumentów na Androida, interfejs we Flutterze.
 Silnik LibreOffice 26.2.6.3 pracuje wewnątrz aplikacji, bez serwera i bez instalowania drugiej aplikacji.
 
-## Nowości 0.4.0
+## Nowości 0.5.0
 
-- Stabilizacja powiększania: podczas gestu zmienia się wyłącznie transformacja obrazu.
-  Układ listy przeliczany jest po zakończeniu gestu, a pozycja korygowana w fazie układania,
-  przed rysowaniem. Wszystkie strony i odstępy skalują się proporcjonalnie.
-- DOCX: przycisk ołówka otwiera dopisywanie nowych akapitów na końcu dokumentu.
-  Dostępne są rozmiar czcionki, pogrubienie i kursywa dla dopisywanego tekstu.
-  Zapis tworzy nowy DOCX; nie przechodzi przez PDF ani konwersję istniejącej treści.
-- TXT: edycja całej treści i zapis nowej kopii UTF-8.
-- Przycisk „Nowy dokument”: tworzenie DOCX albo TXT.
-- „Zapisz jako” otwiera wybór folderu w Androidzie. Anulowanie pozostawia wpisany tekst w edytorze.
-  Wyjście z niezapisanej edycji wymaga potwierdzenia odrzucenia zmian.
-- Po zapisaniu aplikacja otwiera nowy plik w podglądzie. Limit edytora: 200 000 znaków.
+- Ołówek w DOCX, ODT, DOC i RTF otwiera żywy dokument w silniku LibreOffice.
+  Dotknięcie tekstu ustawia kursor; klawiatura zmienia istniejącą treść.
+  Przytrzymanie zaznacza słowo; niebieskie uchwyty pozwalają rozszerzyć zaznaczenie.
+- Pasek narzędzi: pogrubienie, kursywa, podkreślenie, rozmiar czcionki,
+  wyrównanie, cofnij/ponów, kopiuj/wytnij/wklej oraz zaznacz wszystko.
+  Pasek można przewijać poziomo. Formatowanie dotyczy zaznaczenia lub dalszego pisania.
+- Zapis przez „Zapisz jako” w tym samym formacie; przycisk PDF eksportuje bieżącą treść.
+  Anulowanie okna zapisu pozostawia dokument w edytorze. Wyjście pyta o odrzucenie zmian.
+  Po zapisaniu dokumentu aplikacja otwiera zapisaną kopię w podglądzie.
+- Nowy DOCX otwiera się w tym samym edytorze. TXT ma osobny edytor całej treści.
+- Widok edycji rysuje bieżący fragment dokumentu; nie konwertuje go do edytowalnego pola tekstowego.
+  Powiększanie zachowuje punkt pod palcami. Nie zastępuje formatowania dokumentu własnym szablonem.
+- Pozostaje poprawka stabilności powiększania podglądu PDF z 0.4.0.
 
-Dopisywanie DOCX sprawdzono na przesłanych dokumentach, w tym na pliku z tabelami i obrazkiem:
-oryginalne elementy XML i wszystkie inne składniki ZIP zachowały treść. Przeszły testy Unicode,
-formatowania i utworzenia nowego DOCX, wykonane lokalnie w Javie. Testy gestów i interfejsu są
-załączone do GitHub Actions; nowego APK nie uruchomiono jeszcze na telefonie.
+**Nowy edytor wymaga testu na telefonie.** Lokalnie sprawdzono składnię Dart,
+kompilację kodu Java z API Androida i atrapami interfejsów Fluttera oraz tworzenie DOCX.
+Nie wykonano lokalnie `flutter analyze`, testów Flutter ani budowania APK;
+wykonuje je dołączony GitHub Actions. Próby klawiatury, zaznaczania, zapisu przez LibreOffice
+oraz porównanie wyniku na komputerze pozostają do wykonania na urządzeniu.
+Test tworzenia DOCX nie jest testem zapisu przez żywy silnik.
 
 ## Zachowania z wersji 0.3.0
 
@@ -64,7 +68,7 @@ nie dowodzą poprawności renderowania LibreOffice.
    `pubspec.yaml` musi być bezpośrednio w katalogu repozytorium. Skopiuj również `.github` i `.gitignore`.
 3. Zrób Commit, następnie Push origin.
 4. Otwórz Actions → „Zbuduj Dokumenty APK”. Pierwszy build pobiera dodatkowo około 84 MB silnika.
-5. Gdy build będzie zielony, pobierz artefakt `dokumenty-0.4.0-apk`.
+5. Gdy build będzie zielony, pobierz artefakt `dokumenty-0.5.0-apk`.
 6. Rozpakuj artefakt, prześlij `app-release.apk` na telefon i zainstaluj.
 7. Otwórz aplikację i wybierz plik. Przy pierwszym dokumencie Office nastąpi przygotowanie silnika.
 8. Aby otwierać pliki domyślnie: w menedżerze plików wybierz dokument → Otwórz za pomocą → Dokumenty →
@@ -82,9 +86,9 @@ testowymi eksportami.
 - Brakujące czcionki, inne wersje silnika i import formatów Microsoftu mogą zmienić układ. Nie ma gwarancji 1:1.
 - W przypadku arkuszy obowiązują obszary wydruku i widoczność ustawione w oryginale; podgląd może nie pokazać
   komórek poza obszarem wydruku. Nie traktuj go jako pełnego przeglądu wszystkich danych skoroszytu.
-- Edycja DOCX w tej wersji to dopisywanie na końcu; brak zmiany istniejących zdań i formatowania wybranych fragmentów.
-- ODT, DOC, arkusze, RTF i PDF pozostają do odczytu. Nie ma jeszcze ich edycji.
-- Dokumenty DOCX z włączoną ochroną edycji lub podpisem cyfrowym nie są modyfikowane.
+- Edycja obejmuje tekst i podstawowe formatowanie. Przebudowa tabel, edycja obrazków, komentarze i śledzenie zmian nie mają kontrolek.
+- Arkusze oraz PDF pozostają do odczytu. Wklejanie do edytora przenosi tekst bez formatowania; limit jednorazowego wklejenia to 20 000 znaków.
+- Ochronę edycji obsługuje LibreOffice. Interfejs nie pozwala jej wyłączać. Zapis dokumentu podpisanego nie zachowuje ważności podpisu.
 - Brak obsługi haseł i makr w interfejsie.
 - PDF jest renderowany do obrazu strony: brak zaznaczania tekstu i wyszukiwania w PDF/Office w tej wersji.
 - Limit pliku: 100 MB. TXT/CSV: 2 MB, automatyczne UTF-8/UTF-16 z BOM, w razie błędu UTF-8 Windows-1250.
@@ -107,30 +111,28 @@ Przejście z podpisu testowego na stały wymaga odinstalowania wersji testowej.
 
 ## Test na telefonie
 
-1. Włącz tryb samolotowy i otwórz lokalny PDF, TXT, DOCX, ODT, XLSX oraz ODS.
-2. Sprawdź polskie znaki, przechodzenie między stronami, powiększenie i otwieranie drugiego pliku.
-3. Sprawdź rachunek ODS ze scaleniami i kalkulator z formułami względem podglądu wydruku w LibreOffice.
-4. W DOCX z tabelami porównaj tabele, obraz, kolejność stron i końcówki tekstu.
-5. Zapisz podgląd do nowego PDF i otwórz go na komputerze.
-6. Otwórz załącznik z poczty przez „Otwórz za pomocą”.
-7. Sprawdź odmowę dostępu, anulowanie wyboru i błędny plik: powinien pojawić się komunikat, nie utrata oryginału.
+1. W trybie samolotowym otwórz lokalny DOCX i naciśnij ołówek.
+2. Dotknij środka istniejącego zdania, wpisz „zażółć gęślą jaźń”, usuń kilka liter i naciśnij Enter.
+3. Przytrzymaj słowo, przeciągnij uchwyt zaznaczenia, użyj B, I, U i rozmiaru czcionki.
+4. Cofnij i ponów zmianę. Skopiuj, wytnij i wklej krótki fragment.
+5. Powiększ dwoma palcami; przewijaj pionowo i poziomo. Sprawdź położenie kursora po pokazaniu klawiatury.
+6. Anuluj „Zapisz jako”: zmiany powinny pozostać. Następnie zapisz kopię jako DOCX.
+7. Otwórz kopię w LibreOffice na komputerze: sprawdź zmienione zdania, tabelę i obrazek.
+8. Powtórz dla ODT, następnie DOC/RTF, jeśli ich używasz. Sprawdź też PDF wyeksportowany z edytora.
+9. Otwórz plik z komunikatora. Po zamknięciu edytora i podglądu powinien pojawić się komunikator.
+10. Sprawdź nowy DOCX, edycję TXT oraz odrzucenie niezapisanych zmian.
 
-Przesłane przez użytkownika przykładowe dokumenty **nie są dołączone do projektu** i nie wolno ich
-wgrywać do publicznego repozytorium jako danych testowych.
+Silnik LibreOffice dąży do zachowania struktury i układu, ale nie zapewnia zgodności wyglądu 1:1
+z każdą wersją Microsoft Word ani z brakującymi na telefonie czcionkami. Pierwsze próby wykonuj na kopiach.
 
-## Dla kolejnej iteracji
+## Kod i budowanie
 
-Własne pliki Androida są w `native/` i `szablony/`, ponieważ `android/` powstaje na nowo przy buildzie.
-Nie edytuj wygenerowanego `android/`. Flutter jest przypięty do 3.38.5. Używamy zgodnego zestawu
-Gradle/AGP/Kotlin wygenerowanego przez tę wersję Fluttera, zamiast nadpisywać go starszym zestawem.
-Silnik jest pobierany z przypiętego pakietu F-Droid i sprawdzany SHA-256. Zawarte w nim biblioteki są
-niezmienione. Źródła Java JNI pochodzą z tego samego wydania LibreOffice, z jedną opisaną poprawką obsługi błędu.
-
-Moduł `DocumentEdits.java` wykonuje ograniczoną edycję DOCX: dodaje akapity przed końcowym
-`sectPr` w `word/document.xml`, zachowując pozostałe wpisy ZIP bez zmian. To nie jest pełny edytor
-WYSIWYG. Docelowa edycja w dowolnym miejscu dokumentu i arkuszy nadal wymaga osobnej integracji.
-Test `test_native/DocumentEditsTest.java` sprawdza tworzenie, dopisywanie, polskie znaki, emoji,
-formatowanie i zachowanie oryginału. Własne przykłady użytkownika nie są pakowane do repozytorium.
-
-Źródła i pełne informacje licencyjne silnika znajdują się w `licenses/NOTICE.txt` oraz w aplikacji.
-Kod własny: MIT; pliki z LibreOffice i komponenty silnika zachowują własne licencje.
+- `native/` zawiera pliki Androida przywracane po wygenerowaniu projektu.
+- `OfficeEditor.java` obsługuje żywy widok, klawiaturę, zaznaczenie, komendy UNO i zapis.
+- `DocumentEdits.java` służy w aplikacji wyłącznie do utworzenia pustego nowego DOCX.
+- Zmieniono deklarację Java `Document.saveAs` na `int`, zgodnie z wartością zwracaną przez JNI silnika;
+  edytor sprawdza rezultat zapisu. Nie zmieniono binarnego silnika LibreOffice.
+- `flutter analyze` i `flutter test` są wymagane przed zbudowaniem APK w Actions.
+- Testy Flutter sprawdzają przekazanie dokumentów do edycji, ponowne otwarcie zapisu, anulowanie TXT
+  oraz wcześniejsze otwieranie i gesty podglądu. Nie uruchamiają silnika LibreOffice.
+- Zachowaj katalog `.github` podczas kopiowania projektu.

@@ -1,9 +1,11 @@
-Dokumenty 0.4.0 — informacje o komponentach
+Dokumenty 0.5.0 — informacje o komponentach
 
 Silnik: LibreOffice 26.2.6.3 (F-Droid versionCode 131, ARM64).
 Pakiet: https://f-droid.org/repo/org.documentfoundation.libreoffice_131.apk
 Źródła silnika i bibliotek JNI: https://github.com/LibreOffice/core/tree/libreoffice-26.2.6.3
 Receptura kompilacji F-Droid: https://gitlab.com/fdroid/fdroiddata/-/blob/master/metadata/org.documentfoundation.libreoffice.yml
+
+Zmiana w wrapperze Document.java: saveAs zwraca int (wynik JNI), zamiast odrzucać wynik.
 
 Niezależny projekt. Nie jest oficjalną aplikacją LibreOffice ani Collabora.
 Pliki org/libreoffice/kit pochodzą z wyżej wskazanej wersji (MPL 2.0).

@@ -11,7 +11,7 @@ void main() {
         .setMockMethodCallHandler(channel, null),
   );
   testWidgets(
-    'Dopisanie DOCX przekazuje format i zachowuje tekst po anulowaniu zapisu',
+    'Edycja TXT zmienia istniejacy tekst i zachowuje zmiany po anulowaniu zapisu',
     (tester) async {
       Map<dynamic, dynamic>? saved;
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -22,23 +22,26 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: DocumentEditor(
-            format: 'docx',
-            document: {'name': 'Umowa.docx', 'documentId': 27},
+            format: 'txt',
+            document: {
+              'name': 'Umowa.txt',
+              'documentId': 27,
+              'text': 'Pierwotne zdanie',
+            },
           ),
         ),
       );
+      expect(find.text('Pierwotne zdanie'), findsOneWidget);
       await tester.enterText(
         find.byKey(const ValueKey('editor-text')),
         'Zażółć 😀',
       );
-      await tester.tap(find.text('Pogrubienie'));
       await tester.tap(find.text('Zapisz jako'));
       await tester.pumpAndSettle();
       expect(saved?['text'], 'Zażółć 😀');
       expect(saved?['createNew'], false);
       expect(saved?['documentId'], 27);
-      expect(saved?['bold'], true);
-      expect(saved?['filename'], 'Umowa-edycja.docx');
+      expect(saved?['filename'], 'Umowa-edycja.txt');
       expect(find.text('Zażółć 😀'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },

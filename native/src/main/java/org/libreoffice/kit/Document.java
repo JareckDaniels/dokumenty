@@ -178,7 +178,8 @@ public class Document {
 
     public native void setClientZoom(int nTilePixelWidth, int nTilePixelHeight, int nTileTwipWidth, int nTileTwipHeight);
 
-    public native void saveAs(String url, String format, String options);
+    // JNI returns the native success flag (upstream Java wrapper discarded it).
+    public native int saveAs(String url, String format, String options);
 
     private native void paintTileNative(ByteBuffer buffer, int canvasWidth, int canvasHeight, int tilePositionX, int tilePositionY, int tileWidth, int tileHeight);
 

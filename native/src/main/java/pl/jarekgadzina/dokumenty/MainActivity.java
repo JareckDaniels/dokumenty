@@ -32,8 +32,9 @@ public class MainActivity extends FlutterActivity {
     private static final int PICK = 41, EXPORT = 42;
     private static final long MAX_FILE = 100L * 1024 * 1024;
     // LOK calls must always run on one and the same thread, including across activity recreation.
-    private static final ExecutorService WORKER = Executors.newSingleThreadExecutor();
-    private static Office office;
+    static final ExecutorService WORKER = Executors.newSingleThreadExecutor();
+    static Office office;
+    private OfficeEditor officeEditor;
     private MethodChannel channel;
     private MethodChannel.Result pickerResult, exportResult;
     private String initialUri;
@@ -93,24 +94,47 @@ public class MainActivity extends FlutterActivity {
                     try { startActivityForResult(save, EXPORT); }
                     catch (Exception e) { exportResult = null; exportSource = null; fail(result, e); }
                     break;
+                case "openEditor":
+                    Number editId = call.argument("documentId");
+                    boolean newOffice = Boolean.TRUE.equals(call.argument("createNew"));
+                    if (officeEditor != null) { result.error("BUSY", "Edytor jest już otwarty.", null); break; }
+                    WORKER.execute(() -> {
+                        try {
+                            if (!newOffice && (editId == null || editId.longValue() != documentId || currentSource == null ||
+                                !Arrays.asList("docx", "odt", "doc", "rtf").contains(currentExtension)))
+                                throw new IOException("Otwórz ponownie dokument do edycji.");
+                            ensureOffice();
+                            File source = currentSource;
+                            String ext = currentExtension, name = currentName;
+                            if (newOffice) {
+                                source = File.createTempFile("new-document-", ".docx", getCacheDir());
+                                DocumentEdits.writeDocx(null, source, "", 12, false, false);
+                                ext = "docx"; name = "Nowy dokument.docx";
+                            }
+                            final File editSource = source;
+                            final String editExt = ext, editName = name;
+                            runOnUiThread(() -> {
+                                if (isFinishing() || isDestroyed()) { result.error("CLOSED", "Aplikacja została zamknięta.", null); return; }
+                                officeEditor = new OfficeEditor(this, editSource, editExt, editName, result, () -> officeEditor = null);
+                                officeEditor.show();
+                            });
+                        } catch (Exception | LinkageError e) { runOnUiThread(() -> fail(result, e)); }
+                    });
+                    break;
                 case "saveEdited":
                     String editText = call.argument("text");
                     String format = call.argument("format");
                     String filename = call.argument("filename");
-                    Number fontSize = call.argument("fontSize");
                     Number sourceId = call.argument("documentId");
                     boolean createNew = Boolean.TRUE.equals(call.argument("createNew"));
-                    boolean bold = Boolean.TRUE.equals(call.argument("bold"));
-                    boolean italic = Boolean.TRUE.equals(call.argument("italic"));
                     WORKER.execute(() -> {
                         try {
-                            if (!"docx".equals(format) && !"txt".equals(format)) throw new IOException("Ten format nie ma jeszcze edycji.");
+                            if (!"txt".equals(format)) throw new IOException("Ten format nie ma jeszcze edycji.");
                             if (!createNew && (sourceId == null || sourceId.longValue() != documentId || currentSource == null || !format.equals(currentExtension)))
                                 throw new IOException("Dokument źródłowy zmienił się. Otwórz edycję ponownie.");
                             if (editText == null || editText.length() > 200000) throw new IOException("Limit edytora to 200 000 znaków.");
                             File output = File.createTempFile("edited-", "." + format, getCacheDir());
-                            if ("docx".equals(format)) DocumentEdits.writeDocx(createNew ? null : currentSource, output, editText, fontSize.intValue(), bold, italic);
-                            else Files.write(output.toPath(), editText.getBytes(StandardCharsets.UTF_8));
+                            Files.write(output.toPath(), editText.getBytes(StandardCharsets.UTF_8));
                             runOnUiThread(() -> beginEditSave(output, filename, format, result));
                         } catch (Exception e) { runOnUiThread(() -> fail(result, e)); }
                     });
@@ -181,12 +205,19 @@ public class MainActivity extends FlutterActivity {
         }
     }
 
-    private void beginEditSave(File output, String filename, String format, MethodChannel.Result result) {
+    void beginEditSave(File output, String filename, String format, MethodChannel.Result result) {
         if (isFinishing() || isDestroyed()) { result.error("CLOSED", "Edytor został zamknięty.", null); return; }
         if (exportResult != null) { result.error("BUSY", "Okno zapisu jest już otwarte.", null); return; }
         exportSource = output; exportResult = result; editSave = true;
         Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE);
-        save.setType(format.equals("docx") ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "text/plain");
+        switch (format) {
+            case "docx": save.setType("application/vnd.openxmlformats-officedocument.wordprocessingml.document"); break;
+            case "odt": save.setType("application/vnd.oasis.opendocument.text"); break;
+            case "doc": save.setType("application/msword"); break;
+            case "rtf": save.setType("application/rtf"); break;
+            case "pdf": save.setType("application/pdf"); break;
+            default: save.setType("text/plain");
+        }
         save.putExtra(Intent.EXTRA_TITLE, filename == null || filename.trim().isEmpty() ? "Nowy dokument." + format : filename);
         try { startActivityForResult(save, EXPORT); }
         catch (Exception e) { exportSource = null; exportResult = null; editSave = false; fail(result, e); }
@@ -461,6 +492,7 @@ public class MainActivity extends FlutterActivity {
         f.delete();
     }
     @Override protected void onDestroy() {
+        if (officeEditor != null) officeEditor.dispose();
         WORKER.execute(() -> { try { closePdf(); } catch (IOException ignored) {} });
         super.onDestroy();
     }
