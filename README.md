@@ -1,7 +1,20 @@
-# Dokumenty 0.5.0 — wersja testowa
+# Plikownik 0.5.1 — wersja testowa
 
 Prosty czytnik dokumentów na Androida, interfejs we Flutterze.
 Silnik LibreOffice 26.2.6.3 pracuje wewnątrz aplikacji, bez serwera i bez instalowania drugiej aplikacji.
+
+## Poprawki 0.5.1
+
+- Usunięto pięć błędów analizatora w edytorze TXT: dekorację pola przypisaną do komunikatu
+  błędu oraz odwołania do czterech usuniętych pól starego edytora DOCX.
+- Nazwa widoczna na telefonie i w aplikacji: **Plikownik**.
+- Nowa ikona: kremowy otwarty segregator na ciemnozielonym tle, z pomarańczową zakładką.
+  Ikona adaptacyjna dopasowuje się do kształtu ikon telefonu.
+- Identyfikator Androida i nazwa pakietu Dart pozostają bez zmian, więc projekt nadal buduje się
+  w istniejącym repozytorium. Przy tym samym podpisie APK aktualizuje istniejącą aplikację.
+- Dodano test komunikatu o błędzie zapisu TXT oraz ponowienia zapisu bez utraty treści.
+- Lokalnie sprawdzono zmiany źródeł i XML. Analizator Flutter i testy interfejsu uruchamia GitHub Actions;
+  nie wykonano ich lokalnie dla 0.5.1.
 
 ## Nowości 0.5.0
 
@@ -67,11 +80,11 @@ nie dowodzą poprawności renderowania LibreOffice.
 2. Z rozpakowanego ZIP-a skopiuj **zawartość folderu `dokumenty`** do głównego folderu repozytorium.
    `pubspec.yaml` musi być bezpośrednio w katalogu repozytorium. Skopiuj również `.github` i `.gitignore`.
 3. Zrób Commit, następnie Push origin.
-4. Otwórz Actions → „Zbuduj Dokumenty APK”. Pierwszy build pobiera dodatkowo około 84 MB silnika.
-5. Gdy build będzie zielony, pobierz artefakt `dokumenty-0.5.0-apk`.
+4. Otwórz Actions → „Zbuduj Plikownik APK”. Pierwszy build pobiera dodatkowo około 84 MB silnika.
+5. Gdy build będzie zielony, pobierz artefakt `plikownik-0.5.1-apk`.
 6. Rozpakuj artefakt, prześlij `app-release.apk` na telefon i zainstaluj.
 7. Otwórz aplikację i wybierz plik. Przy pierwszym dokumencie Office nastąpi przygotowanie silnika.
-8. Aby otwierać pliki domyślnie: w menedżerze plików wybierz dokument → Otwórz za pomocą → Dokumenty →
+8. Aby otwierać pliki domyślnie: w menedżerze plików wybierz dokument → Otwórz za pomocą → Plikownik →
    Zawsze, jeśli Android udostępni tę opcję. Ustawienie może być osobne dla poszczególnych formatów.
 
 Jeśli build jest czerwony, skopiuj log pierwszego nieudanego kroku. Jeśli aplikacja zamyka się przy

@@ -10,6 +10,40 @@ void main() {
     () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null),
   );
+  testWidgets('Blad zapisu TXT zachowuje tresc i pozwala ponowic zapis', (
+    tester,
+  ) async {
+    var attempts = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'saveEdited') {
+            attempts++;
+            expect(call.arguments['text'], 'Poprawiona treść');
+            if (attempts == 1) {
+              throw PlatformException(code: 'SAVE', message: 'Brak miejsca');
+            }
+          }
+          return null;
+        });
+    await tester.pumpWidget(
+      const MaterialApp(home: DocumentEditor(format: 'txt')),
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('editor-text')),
+      'Poprawiona treść',
+    );
+    await tester.tap(find.text('Zapisz jako'));
+    await tester.pumpAndSettle();
+    expect(find.text('Brak miejsca'), findsOneWidget);
+    expect(find.text('Poprawiona treść'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('Zapisz jako'));
+    await tester.pumpAndSettle();
+    expect(attempts, 2);
+    expect(find.text('Brak miejsca'), findsNothing);
+    expect(find.text('Poprawiona treść'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets(
     'Edycja TXT zmienia istniejacy tekst i zachowuje zmiany po anulowaniu zapisu',
     (tester) async {

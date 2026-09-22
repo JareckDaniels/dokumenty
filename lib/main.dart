@@ -13,7 +13,7 @@ class DokumentyApp extends StatelessWidget {
   const DokumentyApp({super.key});
   @override
   Widget build(BuildContext context) => MaterialApp(
-    title: 'Dokumenty',
+    title: 'Plikownik',
     debugShowCheckedModeBanner: false,
     theme: ThemeData(
       useMaterial3: true,
@@ -342,7 +342,7 @@ class _ReaderHomeState extends State<ReaderHome> {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Dokumenty · 0.5.0'),
+        title: const Text('Plikownik · 0.5.1'),
         content: const SingleChildScrollView(
           child: Text(
             'Wersja testowa. Pliki otwierają się lokalnie, bez internetu.\n\n'
@@ -424,7 +424,7 @@ class _ReaderHomeState extends State<ReaderHome> {
                 )
               : null,
           title: Text(
-            document?['name'] as String? ?? 'Dokumenty',
+            document?['name'] as String? ?? 'Plikownik',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -645,7 +645,7 @@ class _ReaderHomeState extends State<ReaderHome> {
       ),
       const SizedBox(height: 24),
       const Text(
-        'Możesz też otworzyć załącznik z poczty lub pobrany plik i wybrać aplikację Dokumenty. Jeśli Android pokaże opcję „Zawsze”, możesz ustawić ją jako domyślną.',
+        'Możesz też otworzyć załącznik z poczty lub pobrany plik i wybrać aplikację Plikownik. Jeśli Android pokaże opcję „Zawsze”, możesz ustawić ją jako domyślną.',
       ),
     ],
   );

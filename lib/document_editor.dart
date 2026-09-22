@@ -155,10 +155,8 @@ class _DocumentEditorState extends State<DocumentEditor> {
                 padding: const EdgeInsets.all(12),
                 child: Text(
                   _error!,
-                  style: const TextStyle(fontSize: 17),
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    hintText: 'Zacznij pisać…',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.error,
                   ),
                 ),
               ),
@@ -173,18 +171,10 @@ class _DocumentEditorState extends State<DocumentEditor> {
                   expands: true,
                   textAlignVertical: TextAlignVertical.top,
                   keyboardType: TextInputType.multiline,
-                  style: TextStyle(
-                    fontSize: widget.format == 'txt'
-                        ? 17
-                        : _fontSize.toDouble(),
-                    fontWeight: _bold ? FontWeight.bold : FontWeight.normal,
-                    fontStyle: _italic ? FontStyle.italic : FontStyle.normal,
-                  ),
-                  decoration: InputDecoration(
-                    border: const OutlineInputBorder(),
-                    hintText: _append
-                        ? 'Wpisz tekst do dopisania…'
-                        : 'Zacznij pisać…',
+                  style: const TextStyle(fontSize: 17),
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    hintText: 'Zacznij pisać…',
                   ),
                 ),
               ),

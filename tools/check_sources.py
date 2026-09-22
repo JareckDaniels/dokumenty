@@ -24,6 +24,6 @@ for path in (root / 'native').rglob('*.xml'):
 manifest = ET.parse(root / 'native/src/main/AndroidManifest.xml')
 ns = '{http://schemas.android.com/apk/res/android}'
 assert not any(p.get(ns + 'name') == 'android.permission.INTERNET' for p in manifest.findall('uses-permission'))
-assert '0.5.0+6' in (root / 'pubspec.yaml').read_text()
+assert '0.5.1+7' in (root / 'pubspec.yaml').read_text()
 assert (root / 'licenses/NOTICE.txt').stat().st_size > 200000
 print('Python syntax, XML, offline manifest and notices: OK')
