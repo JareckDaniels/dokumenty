@@ -38,6 +38,7 @@ public class MainActivity extends FlutterActivity {
     private ParcelFileDescriptor descriptor;
     private File displayedPdf, exportSource;
     private String currentName;
+    private long documentId = 0;
     private static final Set<String> SUPPORTED = new HashSet<>(Arrays.asList(
         "pdf", "txt", "csv", "doc", "docx", "odt", "xls", "xlsx", "ods", "rtf"));
     private static final String[] TYPES = {
@@ -69,7 +70,12 @@ public class MainActivity extends FlutterActivity {
                     submit(result, () -> open(Uri.parse(Objects.requireNonNull(uri)))); break;
                 case "render":
                     Number index = call.argument("page"); Number width = call.argument("width");
-                    submit(result, () -> render(index.intValue(), width.intValue())); break;
+                    Number requestedDocument = call.argument("documentId");
+                    submit(result, () -> {
+                        if (requestedDocument == null || requestedDocument.longValue() != documentId)
+                            throw new IOException("Podgląd dokumentu został zamknięty.");
+                        return render(index.intValue(), width.intValue());
+                    }); break;
                 case "export":
                     if (displayedPdf == null) { result.error("NO_PDF", "Najpierw otwórz dokument.", null); break; }
                     if (exportResult != null) { result.error("BUSY", "Zapisywanie jest już otwarte.", null); break; }
@@ -198,6 +204,14 @@ public class MainActivity extends FlutterActivity {
             if (pdf.getPageCount() == 0) throw new IOException("Dokument nie ma stron do wyświetlenia.");
             displayedPdf = preview;
             info.put("kind", "pdf"); info.put("pages", pdf.getPageCount());
+            info.put("documentId", documentId);
+            List<List<Integer>> sizes = new ArrayList<>();
+            for (int i = 0; i < pdf.getPageCount(); i++) {
+                try (PdfRenderer.Page page = pdf.openPage(i)) {
+                    sizes.add(Arrays.asList(page.getWidth(), page.getHeight()));
+                }
+            }
+            info.put("pageSizes", sizes);
             info.put("converted", !extension.equals("pdf"));
             return info;
         } catch (Exception e) { closePdf(); throw e; }
@@ -245,6 +259,7 @@ public class MainActivity extends FlutterActivity {
         }
     }
     private void closePdf() throws IOException {
+        documentId++;
         if (pdf != null) { pdf.close(); pdf = null; }
         if (descriptor != null) { descriptor.close(); descriptor = null; }
         displayedPdf = null;

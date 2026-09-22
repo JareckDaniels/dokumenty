@@ -1,17 +1,22 @@
-# Dokumenty 0.1.1 — wersja testowa
+# Dokumenty 0.2.0 — wersja testowa
 
 Prosty czytnik dokumentów na Androida, interfejs we Flutterze.
 Silnik LibreOffice 26.2.6.3 pracuje wewnątrz aplikacji, bez serwera i bez instalowania drugiej aplikacji.
 
-## Poprawka 0.1.1
+## Nowości 0.2.0
 
-Usunięto zbędny import `dart:typed_data`, który zatrzymywał krok `flutter analyze`.
-Numer kompilacji podniesiono do 2. Pozostałe funkcje bez zmian.
+- Ciągłe przewijanie stron PDF i podglądów Office pionowo, palcem.
+- Powiększanie dwoma palcami z zachowaniem przewijania; poziome przesuwanie po przybliżeniu.
+- Doczytywanie widocznych stron i zwalnianie obrazów po ich opuszczeniu.
+- Automatyczny licznik strony, skok do wybranej strony, dopasowanie szerokości.
+- Identyfikator dokumentu chroni przed mieszaniem wyników renderowania przy zmianie pliku.
+- Wersja poprzednia otwiera pliki poprawnie według testu użytkownika. Nowe przewijanie
+  sprawdzono statycznie; załączony test interfejsu zostanie uruchomiony w GitHub Actions.
 
 ## Co jest w tej wersji
 
 - Otwieranie plików przez przycisk lub Androidowe „Otwórz za pomocą”.
-- PDF: strony, powiększanie gestem, wybór numeru strony.
+- PDF: ciągła lista stron, powiększanie gestem, wybór numeru strony.
 - TXT i CSV: podgląd tekstu, wyszukiwanie z podświetleniem, zmiana wielkości tekstu w podglądzie.
 - DOCX, ODT, DOC, RTF, XLSX, ODS i XLS: lokalna konwersja do podglądu PDF przez LibreOffice.
 - Zapis kopii podglądu PDF do wybranego folderu. TXT/CSV nie mają jeszcze eksportu PDF.
@@ -20,7 +25,7 @@ Numer kompilacji podniesiono do 2. Pozostałe funkcje bez zmian.
 
 **To prototyp do testów, nie zweryfikowany produkt końcowy.** Sprawdzono składnię Dart, strukturę projektu,
 kompletność zasobów silnika, sumę kontrolną pakietu i obecność używanych funkcji JNI.
-Nie uruchomiono tutaj aplikacji na urządzeniu ani nie zbudowano APK. Testy Flutter i kompilacja
+Nie zbudowano tutaj nowego APK ani nie uruchomiono nowego przewijania na urządzeniu. Testy Flutter i kompilacja
 są uruchamiane przez załączony GitHub Actions. Testy interfejsu używają atrapy komunikacji z Androidem;
 nie dowodzą poprawności renderowania LibreOffice.
 
@@ -31,7 +36,7 @@ nie dowodzą poprawności renderowania LibreOffice.
    `pubspec.yaml` musi być bezpośrednio w katalogu repozytorium. Skopiuj również `.github` i `.gitignore`.
 3. Zrób Commit, następnie Push origin.
 4. Otwórz Actions → „Zbuduj Dokumenty APK”. Pierwszy build pobiera dodatkowo około 84 MB silnika.
-5. Gdy build będzie zielony, pobierz artefakt `dokumenty-0.1.1-apk`.
+5. Gdy build będzie zielony, pobierz artefakt `dokumenty-0.2.0-apk`.
 6. Rozpakuj artefakt, prześlij `app-release.apk` na telefon i zainstaluj.
 7. Otwórz aplikację i wybierz plik. Przy pierwszym dokumencie Office nastąpi przygotowanie silnika.
 8. Aby otwierać pliki domyślnie: w menedżerze plików wybierz dokument → Otwórz za pomocą → Dokumenty →

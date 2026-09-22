@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'continuous_pdf.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -39,18 +40,15 @@ class ReaderHome extends StatefulWidget {
 
 class _ReaderHomeState extends State<ReaderHome> {
   static const _bridge = MethodChannel('dokumenty/files');
-  final _transform = TransformationController();
+  final _pdfKey = GlobalKey<ContinuousPdfState>();
   final _textScroll = ScrollController();
   Map<String, dynamic>? _document;
-  Uint8List? _pageImage;
   bool _busy = false;
-  bool _rendering = false;
   bool _choosing = false;
   int _page = 0;
   double _fontSize = 17;
   String? _error;
   String? _queuedUri;
-  int _epoch = 0;
   String _query = '';
   int _elapsed = 0;
   Timer? _timer;
@@ -76,7 +74,7 @@ class _ReaderHomeState extends State<ReaderHome> {
   }
 
   Future<void> _pick() async {
-    if (_busy || _choosing || _rendering) return;
+    if (_busy || _choosing) return;
     setState(() => _choosing = true);
     try {
       final uri = await _bridge.invokeMethod<String>('pick');
@@ -90,16 +88,14 @@ class _ReaderHomeState extends State<ReaderHome> {
   }
 
   Future<void> _open(String uri) async {
-    if (_busy || _rendering) {
+    if (_busy) {
       _queuedUri = uri;
       return;
     }
-    _epoch++;
     setState(() {
       _busy = true;
       _error = null;
       _document = null;
-      _pageImage = null;
       _page = 0;
       _query = '';
       _elapsed = 0;
@@ -115,7 +111,6 @@ class _ReaderHomeState extends State<ReaderHome> {
       if (!mounted) return;
       if (data == null) throw const FormatException('Brak danych dokumentu.');
       setState(() => _document = data);
-      if (data['kind'] == 'pdf') await _loadPage(0);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -133,40 +128,10 @@ class _ReaderHomeState extends State<ReaderHome> {
   }
 
   void _drain() {
-    if (mounted && !_busy && !_rendering && !_choosing && _queuedUri != null) {
+    if (mounted && !_busy && !_choosing && _queuedUri != null) {
       final uri = _queuedUri!;
       _queuedUri = null;
       unawaited(_open(uri));
-    }
-  }
-
-  Future<void> _loadPage(int index) async {
-    final token = _epoch;
-    setState(() => _rendering = true);
-    try {
-      final bytes = await _bridge.invokeMethod<Uint8List>('render', {
-        'page': index,
-        'width': 2000,
-      });
-      if (!mounted || token != _epoch) return;
-      if (bytes == null) throw const FormatException('Pusta strona.');
-      _transform.value = Matrix4.identity();
-      setState(() {
-        _pageImage = bytes;
-        _page = index;
-        _error = null;
-      });
-    } catch (e) {
-      if (mounted && token == _epoch) {
-        setState(
-          () => _error = e is PlatformException
-              ? e.message
-              : 'Nie można wyświetlić strony.',
-        );
-      }
-    } finally {
-      if (mounted && token == _epoch) setState(() => _rendering = false);
-      _drain();
     }
   }
 
@@ -187,11 +152,9 @@ class _ReaderHomeState extends State<ReaderHome> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
 
   Future<void> _close() async {
-    if (_busy || _rendering) return;
-    _epoch++;
+    if (_busy) return;
     setState(() {
       _document = null;
-      _pageImage = null;
       _error = null;
     });
     try {
@@ -233,15 +196,15 @@ class _ReaderHomeState extends State<ReaderHome> {
     );
     // Keep the controller alive until the dialog's closing animation finishes.
     Future<void>.delayed(const Duration(seconds: 1), controller.dispose);
-    if (target != null && mounted && !_busy && !_rendering)
-      await _loadPage(target);
+    if (target != null && mounted && !_busy)
+      _pdfKey.currentState?.goToPage(target);
   }
 
   Future<void> _about() async {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Dokumenty · 0.1.1'),
+        title: const Text('Dokumenty · 0.2.0'),
         content: const SingleChildScrollView(
           child: Text(
             'Wersja testowa. Pliki otwierają się lokalnie, bez internetu.\n\n'
@@ -299,7 +262,6 @@ class _ReaderHomeState extends State<ReaderHome> {
   void dispose() {
     _timer?.cancel();
     _bridge.setMethodCallHandler(null);
-    _transform.dispose();
     _textScroll.dispose();
     super.dispose();
   }
@@ -308,7 +270,7 @@ class _ReaderHomeState extends State<ReaderHome> {
   Widget build(BuildContext context) {
     final document = _document;
     final isPdf = document?['kind'] == 'pdf';
-    final locked = _busy || _rendering || _choosing;
+    final locked = _busy || _choosing;
     return PopScope(
       canPop: document == null && !_busy,
       onPopInvokedWithResult: (didPop, result) {
@@ -504,37 +466,17 @@ class _ReaderHomeState extends State<ReaderHome> {
         ),
       if (_error != null) _errorCard(),
       Expanded(
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: ColoredBox(
-                color: const Color(0xff333a3b),
-                child: _pageImage == null
-                    ? const Center(child: CircularProgressIndicator())
-                    : InteractiveViewer(
-                        transformationController: _transform,
-                        minScale: 1,
-                        maxScale: 6,
-                        boundaryMargin: const EdgeInsets.all(20),
-                        child: Center(
-                          child: Image.memory(
-                            _pageImage!,
-                            gaplessPlayback: true,
-                            fit: BoxFit.contain,
-                            semanticLabel: 'Strona ${_page + 1} dokumentu',
-                          ),
-                        ),
-                      ),
-              ),
-            ),
-            if (_rendering)
-              const Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: LinearProgressIndicator(),
-              ),
-          ],
+        child: ContinuousPdf(
+          key: _pdfKey,
+          documentId: _document!['documentId'] as int,
+          pageSizes: (_document!['pageSizes'] as List)
+              .map(
+                (p) => Size((p[0] as num).toDouble(), (p[1] as num).toDouble()),
+              )
+              .toList(),
+          onPageChanged: (page) {
+            if (mounted && _page != page) setState(() => _page = page);
+          },
         ),
       ),
     ],
@@ -549,7 +491,9 @@ class _ReaderHomeState extends State<ReaderHome> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           IconButton(
-            onPressed: locked || _page == 0 ? null : () => _loadPage(_page - 1),
+            onPressed: locked || _page == 0
+                ? null
+                : () => _pdfKey.currentState?.goToPage(_page - 1),
             tooltip: 'Poprzednia strona',
             icon: const Icon(Icons.chevron_left_rounded),
           ),
@@ -558,16 +502,14 @@ class _ReaderHomeState extends State<ReaderHome> {
             child: Text('${_page + 1} / $pages'),
           ),
           IconButton(
-            onPressed: locked
-                ? null
-                : () => _transform.value = Matrix4.identity(),
+            onPressed: locked ? null : () => _pdfKey.currentState?.fitWidth(),
             tooltip: 'Dopasuj stronę',
             icon: const Icon(Icons.fit_screen_rounded),
           ),
           IconButton(
             onPressed: locked || _page + 1 >= pages
                 ? null
-                : () => _loadPage(_page + 1),
+                : () => _pdfKey.currentState?.goToPage(_page + 1),
             tooltip: 'Następna strona',
             icon: const Icon(Icons.chevron_right_rounded),
           ),
