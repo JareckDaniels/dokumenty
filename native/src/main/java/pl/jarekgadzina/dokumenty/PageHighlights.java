@@ -16,20 +16,13 @@ public final class PageHighlights {
     }
     public static JSONArray change(File file,int pages,String action,JSONObject input) throws Exception {
         JSONArray before=read(file), after=new JSONArray();
-        if(action.equals("add")) {
-            if(before.length()>=500)throw new IOException("Limit to 500 zaznaczeń w dokumencie.");
+        if(action.equals("add") || action.equals("addBatch")) {
+            JSONArray additions=action.equals("add")?new JSONArray().put(input):input.getJSONArray("marks");
+            if(additions.length()==0||additions.length()>100||before.length()+additions.length()>500)throw new IOException("Limit to 500 zaznaczeń w dokumencie i 100 wierszy jednocześnie.");
             File[] stored=file.getParentFile().listFiles((dir,name) -> name.endsWith(".json"));
             if(!file.exists() && stored!=null && stored.length>=200)throw new IOException("Limit to 200 dokumentów z zaznaczeniami.");
-            int page=input.getInt("page");
-            double left=input.getDouble("left"),top=input.getDouble("top"),right=input.getDouble("right"),bottom=input.getDouble("bottom");
-            if(page<0 || page>=pages || !Double.isFinite(left+top+right+bottom) || left<0 || top<0 || right>1 || bottom>1 || right<=left || bottom<=top)
-                throw new IOException("Nieprawidłowy obszar zaznaczenia.");
-            JSONObject mark=new JSONObject();
-            mark.put("id",UUID.randomUUID().toString());mark.put("page",page);
-            mark.put("left",left);mark.put("top",top);mark.put("right",right);mark.put("bottom",bottom);
-            mark.put("color",color(input.optString("color","yellow")));mark.put("note",note(input.optString("note","")));
             for(int i=0;i<before.length();i++)after.put(before.getJSONObject(i));
-            after.put(mark);
+            for(int j=0;j<additions.length();j++)after.put(newMark(additions.getJSONObject(j),pages));
         } else if(action.equals("edit") || action.equals("delete")) {
             String id=input.getString("id"); boolean found=false;
             for(int i=0;i<before.length();i++) {
@@ -55,6 +48,17 @@ public final class PageHighlights {
             catch(AtomicMoveNotSupportedException e){ Files.move(temp,file.toPath(),StandardCopyOption.REPLACE_EXISTING); }
         } finally { Files.deleteIfExists(temp); }
         return after;
+    }
+    private static JSONObject newMark(JSONObject input,int pages) throws Exception {
+            int page=input.getInt("page");
+            double left=input.getDouble("left"),top=input.getDouble("top"),right=input.getDouble("right"),bottom=input.getDouble("bottom");
+            if(page<0 || page>=pages || !Double.isFinite(left+top+right+bottom) || left<0 || top<0 || right>1 || bottom>1 || right<=left || bottom<=top)
+                throw new IOException("Nieprawidłowy obszar zaznaczenia.");
+            JSONObject mark=new JSONObject();
+            mark.put("id",UUID.randomUUID().toString());mark.put("page",page);
+            mark.put("left",left);mark.put("top",top);mark.put("right",right);mark.put("bottom",bottom);
+            mark.put("color",color(input.optString("color","yellow")));mark.put("note",note(input.optString("note","")));
+            return mark;
     }
     public static String report(String title,JSONArray marks,boolean wholeSheets) throws Exception {
         if(marks.length()==0)throw new IOException("Brak zaznaczeń do udostępnienia.");

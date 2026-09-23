@@ -48,6 +48,7 @@ void main() {
     });
     await tester.pumpWidget(const DokumentyApp()); await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Więcej')); await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Zaznaczenia i notatki (3)'));
     await tester.tap(find.text('Zaznaczenia i notatki (3)')); await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const ValueKey('notes-search')), 'ważne'); await tester.pumpAndSettle();
     expect(find.text('Widoczne: 2 / 3'), findsOneWidget);

@@ -81,6 +81,7 @@ void main() {
     });
     await tester.pumpWidget(const DokumentyApp()); await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Więcej')); await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Zakreślacz'));
     await tester.tap(find.text('Zakreślacz')); await tester.pumpAndSettle();
     final page = find.byType(MarkLayer).first;
     final start = tester.getTopLeft(page) + const Offset(50, 80);

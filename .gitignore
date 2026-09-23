@@ -10,3 +10,13 @@ key.properties
 keystore-base64.txt
 *.apk
 *.DS_Store
+
+# Private signing exports never belong in source control.
+*.p12
+*.pfx
+KEYSTORE_BASE64*
+KEYSTORE_PASSWORD*
+KEY_PASSWORD*
+KEY_ALIAS*
+plikownik-prywatny-klucz*/
+plikownik-prywatny-klucz*.zip

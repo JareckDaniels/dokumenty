@@ -200,6 +200,50 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
     setState(() { _markMode = true; _reading = false; _controlsVisible = true; _pdfSearch = false; _highlights = {}; _lastAddedMark = null; });
     unawaited(_readerWindow());
   }
+  Future<bool> Function(int, List<Rect>) _textHighlightFor(int id) => (page, rects) => _changeHighlight('addBatch', {
+    'marks': [for(final rect in rects) {'page': page, 'left': rect.left, 'top': rect.top, 'right': rect.right, 'bottom': rect.bottom, 'color': _marker}],
+  }, id);
+  Future<void> _annotatedPdf({bool share = false}) async {
+    final id = _document?['documentId'];
+    if(id == null || _sharing || _busy || _bookmarkBusy) return;
+    setState(() => _sharing = true);
+    try {
+      final saved = await _bridge.invokeMethod<Object?>('annotatedPdf', {'documentId': id, 'share': share});
+      if(mounted && !share && saved != null) _message('Zapisano PDF z zaznaczeniami i komentarzami.');
+    } on PlatformException catch(e) { if(mounted) _message(e.message ?? 'Nie udało się utworzyć kopii PDF.'); }
+    finally { if(mounted) setState(() => _sharing = false); _drain(); }
+  }
+  Future<void> _backupTools() async {
+    if(_busy || _choosing || _document != null) return;
+    final action = await showModalBottomSheet<String>(context: context, showDragHandle: true, builder: (context) => SafeArea(
+      child: SingleChildScrollView(child: Padding(padding: const EdgeInsets.fromLTRB(20, 0, 20, 24), child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Text('Kopia danych czytnika', style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 12),
+        const Text('Zapisuje ustawienia, miejsca czytania, zakładki i notatki. Dokumenty trzeba przenieść osobno. Notatki zostaną przypisane do identycznych plików. Kopia jest jawnym plikiem JSON.'),
+        ListTile(leading: const Icon(Icons.save_alt), title: const Text('Zapisz kopię'), onTap: () => Navigator.pop(context, 'backup')),
+        ListTile(leading: const Icon(Icons.restore), title: const Text('Przywróć z pliku'),
+          subtitle: const Text('Łączy zakładki i notatki. Zachowuje obecne wersje tych samych notatek oraz miejsca czytania. Ustawienia wyglądu pobiera z kopii.'),
+          onTap: () => Navigator.pop(context, 'restoreBackup')),
+      ]))),
+    ));
+    if(!mounted || action == null || _document != null || _busy) return;
+    setState(() => _busy = true);
+    try {
+      final result = await _bridge.invokeMethod<Object?>(action);
+      if(!mounted || result == null || result == false) return;
+      if(action == 'restoreBackup') {
+        final prefs = jsonDecode(await _bridge.invokeMethod<String>('readerPrefs') ?? '{}') as Map;
+        if(!mounted) return;
+        setState(() {
+          _paper = ['original', 'dark', 'warm'].contains(prefs['paper']) ? prefs['paper'] as String : 'original';
+          _keepAwake = prefs['awake'] == true;
+          _recentSort = ['recent', 'oldest', 'name', 'nameDesc'].contains(prefs['sort']) ? prefs['sort'] as String : 'recent';
+        });
+      }
+      if(mounted) _message(action == 'backup' ? 'Zapisano kopię danych czytnika.' : 'Przywrócono dane czytnika.');
+    } catch(e) { if(mounted) _message(e is PlatformException ? e.message ?? 'Operacja nie powiodła się.' : 'Nie można odczytać kopii.'); }
+    finally { if(mounted) setState(() => _busy = false); _drain(); }
+  }
   Future<void> _shareNotes(int id) async {
     if(_sharing || _bookmarkBusy || _busy) return;
     if(_document?['documentId'] != id) { _message('Otwórz ponownie listę notatek w aktualnym dokumencie.'); return; }
@@ -485,6 +529,21 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
     setState(() => _sharing = true);
     try {
       bool pdf = false;
+      if(document['kind'] == 'pdf' && _marks.isNotEmpty) {
+        final choice = await showModalBottomSheet<String>(context: context, showDragHandle: true, builder: (context) => SafeArea(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            ListTile(leading: const Icon(Icons.description_outlined), title: const Text('Oryginalny plik'), onTap: () => Navigator.pop(context, 'original')),
+            ListTile(leading: const Icon(Icons.picture_as_pdf_outlined), title: const Text('PDF z zaznaczeniami i komentarzami'),
+              subtitle: const Text('Osobna kopia z adnotacjami widocznymi w czytnikach PDF'), onTap: () => Navigator.pop(context, 'annotated')),
+            if(document['extension'] != 'pdf') ListTile(leading: const Icon(Icons.picture_as_pdf), title: const Text('Podgląd PDF bez notatek'), onTap: () => Navigator.pop(context, 'pdf')),
+          ]),
+        ));
+        if(choice == null || !mounted) return;
+        await _bridge.invokeMethod<void>(choice == 'annotated' ? 'annotatedPdf' : 'share', {
+          'documentId': document['documentId'], 'pdf': choice == 'pdf', 'share': true,
+        });
+        return;
+      }
       if (document['kind'] == 'pdf' && document['extension'] != 'pdf') {
         final choice = await showModalBottomSheet<bool>(
           context: context,
@@ -788,10 +847,10 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Plikownik · 0.12.0'),
+        title: const Text('Plikownik · 1.0.1'),
         content: const SingleChildScrollView(
           child: Text(
-            'Wersja testowa. Pliki otwierają się lokalnie, bez internetu.\n\n'
+            'Pliki otwierają się lokalnie, bez internetu.\n\n'
             'Dokumenty Office otrzymują podgląd PDF zgodny z ustawieniami wydruku. '
             'Sam podgląd nie zmienia pliku. Brakujące czcionki mogą zmienić układ.\n\n'
             'Edycja DOCX, ODT, DOC i RTF w dokumencie oraz edycja TXT. „Zapisz” aktualizuje plik, gdy aplikacja ma prawo zapisu; „Zapisz jako” tworzy kopię. Brak obsługi haseł. Wyszukiwanie PDF od Androida 15, bez OCR. '
@@ -921,6 +980,8 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
                 onSelected: (value) {
                   if (value == 'open') _pick();
                   if (value == 'pdf') _export();
+                  if (value == 'annotated') _annotatedPdf();
+                  if (value == 'textHelp') _message('Przytrzymaj słowo, przeciągnij palcem do końca fragmentu i podnieś palec. Możesz skopiować lub zakreślić tekst.');
                   if (value == 'reading') _readingOptions();
                   if (value == 'pages') _thumbnails();
                   if (value == 'bookmarks') _showBookmarks();
@@ -931,18 +992,26 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
                   if (value == 'sheets') _switchSheets();
                 },
                 itemBuilder: (_) => [
-                  if (isPdf) const PopupMenuItem(value: 'marker', child: Text('Zakreślacz')),
-                  if (isPdf) PopupMenuItem(value: 'marks', child: Text('Zaznaczenia i notatki (${_marks.length})')),
+                  if (isPdf) const PopupMenuItem<String>(enabled: false, height: 32, child: Text('CZYTANIE', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
                   if (isPdf) const PopupMenuItem(value: 'pages', child: Text('Miniatury / arkusze')),
                   if (isPdf) PopupMenuItem(value: 'bookmarks', child: Text('Zakładki (${_bookmarks.length})')),
-                  const PopupMenuItem(value: 'info', child: Text('Informacje o pliku')),
                   if (isPdf && document['searchAvailable'] == true) const PopupMenuItem(value: 'search', child: Text('Szukaj w dokumencie')),
                   if (['xls', 'xlsx', 'ods'].contains(document['extension']))
                     PopupMenuItem(value: 'sheets', child: Text(document['wholeSheets'] == true ? 'Podgląd wydruku' : 'Widok całych arkuszy')),
-                  const PopupMenuItem(value: 'open', child: Text('Otwórz inny plik')),
+                  if (isPdf) const PopupMenuDivider(),
+                  if (isPdf) const PopupMenuItem<String>(enabled: false, height: 32, child: Text('ZAZNACZENIA', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
+                  if (isPdf && document['searchAvailable'] == true) const PopupMenuItem(value: 'textHelp', child: Text('Jak zaznaczać tekst?')),
+                  if (isPdf) const PopupMenuItem(value: 'marker', child: Text('Zakreślacz')),
+                  if (isPdf) PopupMenuItem(value: 'marks', child: Text('Zaznaczenia i notatki (${_marks.length})')),
+                  if (isPdf && _marks.isNotEmpty) const PopupMenuItem(value: 'annotated', child: Text('Zapisz PDF z notatkami')),
+                  const PopupMenuDivider(),
+                  const PopupMenuItem(value: 'info', child: Text('Informacje o pliku')),
                   if (isPdf) const PopupMenuItem(value: 'pdf', child: Text('Zapisz kopię PDF')),
+                  const PopupMenuItem(value: 'open', child: Text('Otwórz inny plik')),
                 ],
               ),
+            if (document == null)
+              IconButton(onPressed: locked ? null : _backupTools, tooltip: 'Kopia zapasowa', icon: const Icon(Icons.backup_outlined)),
             if (document == null)
               IconButton(
                 onPressed: _about,
@@ -1220,6 +1289,8 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
           onTap: _toggleControls,
           highlights: _highlights,
           marks: _marks,
+          textSelection: _document!['searchAvailable'] == true,
+          onTextHighlight: _textHighlightFor(_document!['documentId'] as int),
           marking: _markMode,
           marker: _marker,
           onMark: _drawFor(_document!['documentId'] as int),

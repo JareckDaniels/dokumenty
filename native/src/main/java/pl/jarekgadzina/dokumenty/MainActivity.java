@@ -29,14 +29,14 @@ import org.json.JSONObject;
 
 /** Native file access and serialized, offline LibreOffice/PDF work. */
 public class MainActivity extends FlutterActivity {
-    private static final int PICK = 41, EXPORT = 42;
+    private static final int PICK = 41, EXPORT = 42, RESTORE = 43;
     private static final long MAX_FILE = 100L * 1024 * 1024;
     // LOK calls must always run on one and the same thread, including across activity recreation.
     static final ExecutorService WORKER = Executors.newSingleThreadExecutor();
     static Office office;
     private OfficeEditor officeEditor;
     private MethodChannel channel;
-    private MethodChannel.Result pickerResult, exportResult;
+    private MethodChannel.Result pickerResult, exportResult, restoreResult;
     private String initialUri;
     private boolean flutterReady;
     private PdfRenderer pdf;
@@ -63,6 +63,7 @@ public class MainActivity extends FlutterActivity {
     @Override public void configureFlutterEngine(@NonNull FlutterEngine engine) {
         super.configureFlutterEngine(engine);
         AppDiagnostics.install(this);
+        WORKER.execute(() -> { try { ReaderBackup.recover(this); } catch(Exception e) { AppDiagnostics.mark(this,"Odzyskiwanie kopii: " + e.getMessage()); } });
         channel = new MethodChannel(engine.getDartExecutor().getBinaryMessenger(), "dokumenty/files");
         initialUri = intentUri(getIntent());
         channel.setMethodCallHandler((call, result) -> {
@@ -87,8 +88,13 @@ public class MainActivity extends FlutterActivity {
                     applyReaderWindow(); result.success(null); break;
                 case "readerPrefs":
                     String prefs=call.argument("value");
-                    if(prefs!=null)getSharedPreferences("reader",MODE_PRIVATE).edit().putString("prefs",prefs).apply();
-                    result.success(getSharedPreferences("reader",MODE_PRIVATE).getString("prefs","{}")); break;
+                    submit(result,() -> {
+                        if(prefs!=null) {
+                            if(prefs.length()>2000)throw new IOException("Nieprawidłowe ustawienia.");
+                            if(!getSharedPreferences("reader",MODE_PRIVATE).edit().putString("prefs",prefs).commit())throw new IOException("Nie udało się zapisać ustawień.");
+                        }
+                        return getSharedPreferences("reader",MODE_PRIVATE).getString("prefs","{}");
+                    });break;
                 case "saveReading":
                     Number savedId=call.argument("documentId");
                     String view=call.argument("view");
@@ -128,7 +134,7 @@ public class MainActivity extends FlutterActivity {
                     submit(result,() -> {
                         if(highlightId==null || highlightId.longValue()!=documentId || pdf==null || readingKey==null)
                             throw new IOException("Dokument został zamknięty. Otwórz go ponownie.");
-                        if(highlightInput==null || highlightInput.length()>10000 || highlightAction==null)throw new IOException("Nieprawidłowe zaznaczenie.");
+                        if(highlightInput==null || highlightInput.length()>100000 || highlightAction==null)throw new IOException("Nieprawidłowe zaznaczenie.");
                         return PageHighlights.change(highlightFile(),pdf.getPageCount(),highlightAction,new JSONObject(highlightInput)).toString();
                     }); break;
                 case "searchPage":
@@ -155,6 +161,50 @@ public class MainActivity extends FlutterActivity {
                         }
                         return matches;
                     }); break;
+                case "selectText":
+                    Number selectionId=call.argument("documentId"),selectionPage=call.argument("page");
+                    List<Number> start=call.argument("start"),stop=call.argument("stop");
+                    submit(result,() -> {
+                        if(selectionId==null||selectionId.longValue()!=documentId||pdf==null)throw new IOException("Dokument został zamknięty.");
+                        return PdfTextSelection.select(pdf,selectionPage.intValue(),start,stop);
+                    });break;
+                case "renderTile":
+                    Number tileId=call.argument("documentId"),tilePage=call.argument("page"),tileWidth=call.argument("fullWidth"),tileX=call.argument("x"),tileY=call.argument("y"),tileSize=call.argument("size");
+                    submit(result,() -> {
+                        if(tileId==null||tileId.longValue()!=documentId||pdf==null)throw new IOException("Dokument został zamknięty.");
+                        return renderTile(tilePage.intValue(),tileWidth.intValue(),tileX.intValue(),tileY.intValue(),tileSize.intValue());
+                    });break;
+                case "annotatedPdf":
+                    Number annotatedId=call.argument("documentId");boolean sendAnnotated=Boolean.TRUE.equals(call.argument("share"));
+                    WORKER.execute(() -> {
+                        File draft=null;
+                        try {
+                            ReaderBackup.recover(this);
+                            if(annotatedId==null||annotatedId.longValue()!=documentId||displayedPdf==null)throw new IOException("Dokument został zamknięty.");
+                            draft=File.createTempFile("annotated-",".pdf",getCacheDir());
+                            AnnotatedPdf.write(this,displayedPdf,draft,PageHighlights.read(highlightFile()));
+                            String filename=currentName.replaceFirst("\\.[^.]+$","")+"-z-notatkami.pdf";
+                            if(sendAnnotated){File attachment=ShareFiles.snapshot(getCacheDir(),draft,filename,"pdf");shareAttachment(attachment,"application/pdf",result);}
+                            else {File ready=draft;draft=null;runOnUiThread(() -> beginEditSave(ready,filename,"pdf",result));}
+                        }catch(Exception | LinkageError e){runOnUiThread(() -> fail(result,e));}
+                        finally{if(draft!=null)draft.delete();}
+                    });break;
+                case "backup":
+                    WORKER.execute(() -> {
+                        File draft=null;
+                        try {
+                            ReaderBackup.recover(this);
+                            draft=File.createTempFile("backup-",".json",getCacheDir());
+                            Files.write(draft.toPath(),ReaderBackup.bytes(ReaderBackup.snapshot(this)));
+                            File ready=draft;draft=null;runOnUiThread(() -> beginEditSave(ready,"Plikownik-kopia.json","json",result));
+                        }catch(Exception e){runOnUiThread(() -> fail(result,e));}
+                        finally{if(draft!=null)draft.delete();}
+                    });break;
+                case "restoreBackup":
+                    if(restoreResult!=null){result.error("BUSY","Okno przywracania jest otwarte.",null);break;}
+                    restoreResult=result;
+                    try{startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"),RESTORE);}
+                    catch(Exception e){restoreResult=null;fail(result,e);}break;
                 case "render":
                     Number index = call.argument("page"); Number width = call.argument("width");
                     Number requestedDocument = call.argument("documentId");
@@ -299,6 +349,18 @@ public class MainActivity extends FlutterActivity {
 
     @Override protected void onActivityResult(int request, int code, Intent data) {
         super.onActivityResult(request, code, data);
+        if(request==RESTORE && restoreResult!=null) {
+            MethodChannel.Result r=restoreResult;restoreResult=null;
+            if(code!=Activity.RESULT_OK||data==null||data.getData()==null){r.success(false);return;}
+            Uri target=data.getData();
+            submit(r,() -> {
+                try(InputStream in=getContentResolver().openInputStream(target)) {
+                    if(in==null)throw new IOException("Nie można otworzyć kopii.");
+                    JSONObject incoming=new JSONObject(new String(readLimited(in,ReaderBackup.MAX_BYTES),StandardCharsets.UTF_8));
+                    ReaderBackup.restore(this,incoming);return true;
+                }
+            });return;
+        }
         if (request == PICK && pickerResult != null) {
             MethodChannel.Result r = pickerResult; pickerResult = null;
             r.success(code == Activity.RESULT_OK && data != null && data.getData() != null
@@ -338,8 +400,8 @@ public class MainActivity extends FlutterActivity {
     }
 
     void beginEditSave(File output, String filename, String format, MethodChannel.Result result) {
-        if (isFinishing() || isDestroyed()) { result.error("CLOSED", "Edytor został zamknięty.", null); return; }
-        if (exportResult != null) { result.error("BUSY", "Okno zapisu jest już otwarte.", null); return; }
+        if (isFinishing() || isDestroyed()) { output.delete(); result.error("CLOSED", "Edytor został zamknięty.", null); return; }
+        if (exportResult != null) { output.delete(); result.error("BUSY", "Okno zapisu jest już otwarte.", null); return; }
         exportSource = output; exportResult = result; editSave = true;
         Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE);
         switch (format) {
@@ -347,17 +409,18 @@ public class MainActivity extends FlutterActivity {
             case "odt": save.setType("application/vnd.oasis.opendocument.text"); break;
             case "doc": save.setType("application/msword"); break;
             case "rtf": save.setType("application/rtf"); break;
+            case "json": save.setType("application/json"); break;
             case "pdf": save.setType("application/pdf"); break;
             default: save.setType("text/plain");
         }
         save.putExtra(Intent.EXTRA_TITLE, filename == null || filename.trim().isEmpty() ? "Nowy dokument." + format : filename);
         try { startActivityForResult(save, EXPORT); }
-        catch (Exception e) { exportSource = null; exportResult = null; editSave = false; fail(result, e); }
+        catch (Exception e) { output.delete(); exportSource = null; exportResult = null; editSave = false; fail(result, e); }
     }
 
     private void submit(MethodChannel.Result result, Callable<Object> task) {
         WORKER.execute(() -> {
-            try { Object value = task.call(); runOnUiThread(() -> result.success(value)); }
+            try { ReaderBackup.recover(this); Object value = task.call(); runOnUiThread(() -> result.success(value)); }
             catch (Exception | LinkageError e) { runOnUiThread(() -> fail(result, e)); }
         });
     }
@@ -480,6 +543,22 @@ public class MainActivity extends FlutterActivity {
             try (InputStream in = getAssets().open(asset); OutputStream out = new FileOutputStream(target)) {
                 copy(in, out, MAX_FILE);
             }
+        }
+    }
+
+    private byte[] renderTile(int index,int fullWidth,int x,int y,int size) throws IOException {
+        if(pdf==null||index<0||index>=pdf.getPageCount()||fullWidth<1||fullWidth>50000||x<0||y<0||size<1||size>1024)
+            throw new IOException("Nieprawidłowy fragment strony.");
+        try(PdfRenderer.Page page=pdf.openPage(index)) {
+            float scale=fullWidth/(float)page.getWidth();
+            int w=Math.min(size,fullWidth-x),h=Math.min(size,(int)Math.ceil(page.getHeight()*scale)-y);
+            if(w<1||h<1)throw new IOException("Fragment poza stroną.");
+            Bitmap bitmap=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888);
+            try {bitmap.eraseColor(Color.WHITE);
+                android.graphics.Matrix matrix=new android.graphics.Matrix();matrix.setScale(scale,scale);matrix.postTranslate(-x,-y);
+                page.render(bitmap,null,matrix,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
+                ByteArrayOutputStream out=new ByteArrayOutputStream();bitmap.compress(Bitmap.CompressFormat.PNG,100,out);return out.toByteArray();
+            }finally{bitmap.recycle();}
         }
     }
 

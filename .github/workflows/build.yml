@@ -22,6 +22,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Sprawdz zabezpieczenia podpisu
+        run: python3 test_native/check_signing.py
       - name: Ustaw Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -30,8 +32,6 @@ jobs:
           cache: true
       - name: Wygeneruj Androida i przywroc nasz kod
         run: python3 tools/prepare_android.py
-      - name: Pobierz sprawdzony silnik LibreOffice
-        run: python3 tools/prepare_engine.py
       - name: Przygotuj podpis
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -39,6 +39,8 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: python3 tools/signing.py
+      - name: Pobierz sprawdzony silnik LibreOffice
+        run: python3 tools/prepare_engine.py
       - name: Pobierz zaleznosci
         run: flutter pub get
       - name: Sprawdz kod
@@ -74,12 +76,16 @@ jobs:
           echo '3cf6cd6892e32e2b4c1c39e0f52f5248a2f5b37646fdfbb79a66b46b618414ed  build/native-tests/json.jar' | sha256sum -c -
           javac -encoding UTF-8 -cp build/native-tests/json.jar -d build/native-tests native/src/main/java/pl/jarekgadzina/dokumenty/PageHighlights.java test_native/PageHighlightsTest.java
           java -cp build/native-tests:build/native-tests/json.jar PageHighlightsTest
+      - name: Sprawdz geometrie PDF i przywracanie kopii
+        run: |
+          javac -encoding UTF-8 -cp build/native-tests:build/native-tests/json.jar -d build/native-tests native/src/main/java/pl/jarekgadzina/dokumenty/AnnotationGeometry.java native/src/main/java/pl/jarekgadzina/dokumenty/ReaderBackupData.java native/src/main/java/pl/jarekgadzina/dokumenty/ReaderBackupTransaction.java test_native/ReleaseOneTest.java
+          java -cp build/native-tests:build/native-tests/json.jar ReleaseOneTest
       - name: Zbuduj APK ARM64
         run: flutter build apk --release --target-platform android-arm64
       - name: Udostepnij APK
         uses: actions/upload-artifact@v4
         with:
-          name: plikownik-0.12.0-apk
+          name: plikownik-1.0.1-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 14
           if-no-files-found: error

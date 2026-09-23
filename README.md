@@ -1,4 +1,105 @@
-# Plikownik 0.12.0 — wersja testowa
+# Plikownik 1.0.1 (18)
+
+Offline: PDF i podglądy LibreOffice/Microsoft Office, czytanie, zakładki, notatki i udostępnianie.
+Edycja DOCX/ODT/DOC/RTF/TXT pozostaje funkcją pomocniczą. Ten pakiet zawiera źródła, nie APK.
+
+## Zmiana 1.0.1 — stały podpis
+
+APK wymaga teraz czterech sekretów GitHub: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_PASSWORD`,
+`KEY_ALIAS`. Wartości znajdują się w osobnej, prywatnej paczce klucza; nie kopiuj jej do repozytorium.
+Dodaj każdy sekret w Settings → Secrets and variables → Actions → New repository secret.
+Następnie wyślij kod tej wersji i uruchom kompilację.
+
+Skrypt sprawdza odcisk certyfikatu i dostęp do klucza prywatnego przed pobieraniem LibreOffice.
+Brak sekretów, błędne hasło lub inny klucz zatrzymują kompilację. Nie ma podpisu testowego jako zastępstwa.
+Odcisk w `tools/signing_certificate.sha256` jest publiczny i może znajdować się w repozytorium.
+Zachowaj prywatną paczkę jako kopię zapasową — ten sam klucz ma podpisywać wszystkie przyszłe wersje.
+
+**Pierwsze przejście:** jeśli obecna aplikacja jest podpisana niezachowanym kluczem testowym,
+trzeba ją odinstalować raz przed instalacją tej wersji. Odinstalowanie usuwa prywatne zakładki,
+notatki i historię. Jeżeli zainstalowana wersja ma już „Kopię zapasową”, zapisz ją poza aplikacją
+przed odinstalowaniem i przywróć po instalacji. W starszej wersji eksport TXT pozwala zachować
+komentarze do odczytu, ale nie umożliwia późniejszego importu zakreśleń.
+
+Do przetestowania: kompilacja po dodaniu sekretów, instalacja pierwszej wersji ze stałym podpisem,
+ponowna kompilacja tego samego kodu i instalacja APK na nią bez odinstalowywania; sprawdź zachowanie
+zakładki i notatki. Funkcje czytnika nie zmieniły się względem 1.0.0.
+
+## Nowości 1.0
+
+- **PDF z zaznaczeniami i komentarzami**: w menu „Zapisz PDF z notatkami”, a pod przyciskiem
+  udostępniania wybór oryginału albo PDF z notatkami. Eksport zachowuje tekst, grafikę i istniejące
+  adnotacje, dodając standardowe adnotacje Highlight z komentarzami. Nie rasteruje stron.
+  Oryginał pozostaje nienaruszony; komentarze odczytuje się w panelu adnotacji czytnika PDF.
+  Kolory trybu nocnego/ciepłego nie zmieniają eksportu. Pliki podpisane cyfrowo i takie, które
+  nie zezwalają na adnotacje, są odrzucane z komunikatem. Dla Office eksportowany jest bieżący podgląd PDF.
+- **Zaznaczanie tekstu od Androida 15**: przytrzymaj słowo, przeciągnij palcem bez odrywania do
+  końca fragmentu, potem podnieś palec. Panel oferuje kopiowanie tekstu lub zakreślenie wierszy.
+  Zaznaczenie obejmuje jedną stronę. Wiersze zapisywane są razem, atomowo; limit 100 wierszy na raz,
+  500 zaznaczeń na dokument. Kolor odpowiada ostatnio wybranemu kolorowi zakreślacza.
+  Skan bez warstwy tekstowej wymaga zakreślacza obszaru. OCR nie jest częścią tej wersji.
+- **Ostre powiększanie**: powyżej 1,4× czytnik renderuje widoczne kafelki 768 px. Po przesunięciu
+  doładowuje szczegóły nowego obszaru, utrzymując bazowy podgląd do czasu ich pojawienia się.
+  Nie tworzy ogromnej bitmapy całej strony. Kafelki poza ekranem są zwalniane, a oczekujące
+  zlecenia dla zamkniętego dokumentu pomijane. Filtry czytania obejmują też kafelki.
+- **Kopia danych czytnika** na ekranie głównym: zapis/przywracanie pliku JSON do wybranego miejsca.
+  Obejmuje ustawienia, miejsca czytania, zakładki i lokalne notatki; NIE obejmuje dokumentów,
+  historii ostatnich plików ani przypięć. Dokumenty przenieś osobno, zachowując ich bajty.
+  Przywracanie łączy zakładki i notatki; przy konflikcie identyfikatora zachowuje bieżącą notatkę.
+  Bieżące miejsca czytania mają pierwszeństwo, ustawienia wyglądu pochodzą z kopii.
+  Limit kopii: 25 MB; import jest walidowany przed zmianami. Przerwany import cofa dziennik przy
+  następnym uruchomieniu. Ponowny import tej samej kopii nie mnoży zaznaczeń.
+- **Menu w grupach**: czytanie, zaznaczenia, operacje na pliku. Pomoc zaznaczania jest dostępna
+  w menu. Zachowane są dotychczasowe gesty Wstecz, pełny ekran i otwieranie plików z innych aplikacji.
+
+## Budowanie i aktualizacja
+
+Wgraj zawartość katalogu `dokumenty` do dotychczasowego repozytorium (łącznie z `.github`).
+Commit → Push → GitHub Actions. Pobierz `plikownik-1.0.1-apk` i zainstaluj APK jako aktualizację, jeśli obecna wersja używa już stałego klucza.
+Identyfikator aplikacji nie zmienił się. Użyj tego samego klucza podpisu co poprzednio.
+Przy pierwszej zmianie podpisu zastosuj procedurę opisaną powyżej; później nie odinstalowuj aplikacji.
+Nowa zależność: PdfBox-Android 2.0.27.0 (Apache 2.0); Gradle pobiera ją podczas budowania.
+Gotowa aplikacja nadal działa bez dostępu do internetu. Wersja Flutter/LibreOffice pozostaje przypięta.
+
+## Do przetestowania na telefonie
+
+1. Zainstaluj na poprzedniej wersji. Sprawdź zachowanie ostatnich plików, zakładek, notatek i ustawień.
+2. Przytrzymaj słowo w PDF, rozszerz palcem zaznaczenie na kilka wierszy, skopiuj je i zakreśl.
+   Sprawdź polskie znaki, ostatnią stronę i skan bez tekstu. Zweryfikuj zachowanie po błędzie i zamknięciu pliku.
+3. Dodaj komentarze i trzy kolory zaznaczeń. Zapisz/udostępnij PDF z notatkami, otwórz na komputerze
+   w czytniku obsługującym adnotacje. Sprawdź tekst, grafiki, istniejące adnotacje, obrót stron i położenie markerów.
+   Oryginalny plik ma pozostać bez zmian. Ponów po anulowaniu okna zapisu/udostępniania.
+4. Powiększ mały tekst do 6–12×, przesuń poziomo i pionowo, także w dużym arkuszu XLSX/ODS.
+   Sprawdź stopniowe wyostrzenie, brak przesunięcia kafelków i drgań, szybkie przewijanie, obrót telefonu.
+5. Zapisz kopię danych. Usuń testową zakładkę/notatkę i przywróć kopię; odtwórz ją ponownie,
+   sprawdzając brak duplikatów. Spróbuj przywrócić błędny JSON: obecne dane powinny zostać zachowane.
+   Najlepiej sprawdź też na drugim urządzeniu z identycznymi dokumentami.
+6. Sprawdź pełny ekran, ciepły/ciemny tryb, wyszukiwanie, miniatury, listę notatek i udostępnianie oryginału.
+7. Otwórz PDF i DOCX z poczty/WhatsAppa/menedżera plików. Wstecz ma wracać do aplikacji źródłowej.
+8. Awaryjna edycja: zaznacz tekst, zmień rozmiar/pogrubienie, zapisz kopię DOCX/ODT i otwórz w LibreOffice.
+   Porównaj także kilka własnych dokumentów DOCX/XLSX z widokiem na komputerze, szczególnie czcionki i tabele.
+
+## Weryfikacja
+
+Lokalnie: kompilacja całego kodu natywnego z Android API, AndroidX, PdfBox i atrapami mostka Flutter;
+wykonywane testy JVM geometrii obróconych/przyciętych stron, importu/łączenia kopii, wycofywania
+przerwanych zapisów i atomowego zapisu zaznaczeń wielu wierszy, plus wcześniejsze testy notatek.
+Kontrola struktury źródeł, wersji, XML i braku uprawnienia INTERNET.
+Dodano testy Flutter zaznaczania/kopiowania, kafelków, wyboru eksportu i anulowania/błędów kopii.
+**Pełnych `flutter analyze`, `flutter test`, kompilacji APK oraz testów na urządzeniu nie wykonano lokalnie.**
+GitHub Actions uruchamia analizę i testy przed zbudowaniem APK. Nadanie wersji 1.0 nie zastępuje
+końcowego sprawdzenia na telefonie — lista powyżej stanowi sprawdzenie odbiorcze.
+
+## Ograniczenia
+
+Podgląd Office zależy od zgodności LibreOffice i dostępnych czcionek: nie ma gwarancji 1:1 dla
+każdego dokumentu Microsoft Office. CSV pozostaje tekstem. Brak OCR i obsługi haseł.
+Zakreślenia w wyeksportowanym PDF są standardowymi adnotacjami; ich wygląd i obsługa komentarzy
+mogą różnić się między czytnikami. Po otwarciu takiej kopii w Plikowniku widać osadzone zakreślenia,
+ale lista lokalnych notatek nie importuje automatycznie adnotacji PDF — do przenoszenia lokalnych danych służy kopia JSON.
+Poniżej zachowano historię wcześniejszych wydań; opis 1.0 ma pierwszeństwo przed dawnymi ograniczeniami.
+
+# Historia wcześniejszych wersji
 
 Prosty czytnik dokumentów na Androida, interfejs we Flutterze.
 Silnik LibreOffice 26.2.6.3 pracuje wewnątrz aplikacji, bez serwera i bez instalowania drugiej aplikacji.
@@ -447,7 +548,7 @@ nie dowodzą poprawności renderowania LibreOffice.
    `pubspec.yaml` musi być bezpośrednio w katalogu repozytorium. Skopiuj również `.github` i `.gitignore`.
 3. Zrób Commit, następnie Push origin.
 4. Otwórz Actions → „Zbuduj Plikownik APK”. Pierwszy build pobiera dodatkowo około 84 MB silnika.
-5. Gdy build będzie zielony, pobierz artefakt `plikownik-0.12.0-apk`.
+5. Gdy build będzie zielony, pobierz artefakt `plikownik-1.0.1-apk`.
 6. Rozpakuj artefakt, prześlij `app-release.apk` na telefon i zainstaluj.
 7. Otwórz aplikację i wybierz plik. Przy pierwszym dokumencie Office nastąpi przygotowanie silnika.
 8. Aby otwierać pliki domyślnie: w menedżerze plików wybierz dokument → Otwórz za pomocą → Plikownik →
@@ -479,14 +580,9 @@ testowymi eksportami.
 
 ## Podpis i kolejne aktualizacje
 
-Pierwsza wersja może budować się bez sekretów na tymczasowym kluczu testowym. Kolejny build w nowym
-środowisku GitHub może mieć inny podpis i wymagać odinstalowania poprzedniej wersji. Odinstalowanie usuwa listę ostatnich dokumentów i jej prywatne kopie, ale nie usuwa plików źródłowych
-z folderu Pobrane. Usuwa cache i ustawienia samej aplikacji.
-
-Przed zwykłym użytkowaniem kolejnych wersji skonfiguruj stały klucz przez sekrety Actions:
-`KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_PASSWORD`, `KEY_ALIAS`.
-Podaj wszystkie cztery albo żaden. Nie umieszczaj klucza i haseł w repozytorium.
-Przejście z podpisu testowego na stały wymaga odinstalowania wersji testowej.
+Od 1.0.1 wymagane są wszystkie cztery sekrety opisane na początku tego pliku.
+Podpis testowy jest wyłączony. Nie umieszczaj klucza ani haseł w repozytorium.
+Po pierwszej instalacji ze stałym kluczem kolejne APK instaluj jako aktualizację.
 
 ## Test na telefonie
 

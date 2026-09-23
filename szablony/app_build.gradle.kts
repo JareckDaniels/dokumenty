@@ -29,7 +29,11 @@ android {
     }
     // LibreOffice maps its assets directly from the APK ZIP file.
     androidResources { noCompress += "" }
-    packaging { jniLibs { useLegacyPackaging = true } }
+    packaging {
+        jniLibs { useLegacyPackaging = true }
+        // Dependency notices are included in the app's licenses/NOTICE.txt bundle.
+        resources.excludes += setOf("META-INF/DEPENDENCIES", "META-INF/LICENSE", "META-INF/LICENSE.txt", "META-INF/NOTICE", "META-INF/NOTICE.txt", "META-INF/versions/9/OSGI-INF/MANIFEST.MF")
+    }
     signingConfigs {
         create("release") {
             if (keyFile.exists()) {
@@ -42,8 +46,7 @@ android {
     }
     buildTypes {
         release {
-            signingConfig = if (keyFile.exists()) signingConfigs.getByName("release")
-                else signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             isShrinkResources = false
         }
@@ -52,4 +55,7 @@ android {
 flutter { source = "../.." }
 
 // Read-only content:// attachments for Android sharing.
-dependencies { implementation("androidx.core:core:1.13.1") }
+dependencies {
+    implementation("androidx.core:core:1.13.1")
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+}

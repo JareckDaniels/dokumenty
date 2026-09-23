@@ -51,6 +51,7 @@ void main() {
     expect(find.byTooltip('Usuń zakładkę'), findsOneWidget);
     await tester.tap(find.byTooltip('Więcej'));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Informacje o pliku'));
     await tester.tap(find.text('Informacje o pliku'));
     await tester.pumpAndSettle();
     expect(find.textContaining('Rozmiar pliku: 2,0 KB'), findsOneWidget);

@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'highlighter.dart';
+import 'pdf_tiles.dart';
+import 'pdf_selection.dart';
 
 /// One continuous document. Zoom changes the layout, so vertical scrolling
 /// continues to work at every zoom level instead of panning a single page.
@@ -21,7 +23,11 @@ class ContinuousPdf extends StatefulWidget {
     this.marking = false,
     this.marker = 'yellow',
     this.onMark,
+    this.onTextHighlight,
+    this.textSelection = false,
   });
+  final bool textSelection;
+  final Future<bool> Function(int, List<Rect>)? onTextHighlight;
   final int documentId;
   final List<Size> pageSizes;
   final ValueChanged<int> onPageChanged;
@@ -42,6 +48,7 @@ class ContinuousPdfState extends State<ContinuousPdf> {
   static const _bridge = MethodChannel('dokumenty/files');
   final _vertical = _ZoomScrollController();
   final _horizontal = _ZoomScrollController();
+  final _tilesChanged = ValueNotifier<int>(0);
   final Map<int, Offset> _pointers = {};
   Future<void> _renderQueue = Future<void>.value();
   double _zoom = 1;
@@ -168,7 +175,7 @@ class ContinuousPdfState extends State<ContinuousPdf> {
     // Scroll positions consume their targets during layout, before the first paint
     // at the new zoom. No visible frame at an intermediate offset.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && serial == _layoutSerial) { _reportPage(); _viewChanged(); }
+      if (mounted && serial == _layoutSerial) { _tilesChanged.value++; _reportPage(); _viewChanged(); }
     });
   }
 
@@ -233,6 +240,28 @@ class ContinuousPdfState extends State<ContinuousPdf> {
     return result.future;
   }
 
+  Future<Uint8List?> _renderTile(int page, int width, int x, int y, int size, bool Function() visible) {
+    final id = widget.documentId;
+    final result = Completer<Uint8List?>();
+    _renderQueue = _renderQueue.then((_) async {
+      if(!mounted || !visible() || id != widget.documentId) { result.complete(null); return; }
+      try { result.complete(await _bridge.invokeMethod<Uint8List>('renderTile', {
+        'documentId': id, 'page': page, 'fullWidth': width, 'x': x, 'y': y, 'size': size,
+      })); } catch(e, stack) { result.completeError(e, stack); }
+    });
+    return result.future;
+  }
+  Widget _tiles(int page) => AnimatedBuilder(animation: Listenable.merge([_vertical, _horizontal, _tilesChanged]), builder: (context, _) {
+    final width = math.max(1.0, _viewportWidth - 16) * _zoom;
+    final height = width * widget.pageSizes[page].height / widget.pageSizes[page].width;
+    final x = (_horizontal.hasClients ? _horizontal.offset : 0.0) - 8 * _zoom;
+    final y = (_vertical.hasClients ? _vertical.offset : 0.0) - _offsets[page] - 8 * _zoom;
+    final viewportHeight = _vertical.hasClients ? _vertical.position.viewportDimension : 0.0;
+    final visible = Rect.fromLTWH(x, y, _viewportWidth, viewportHeight).intersect(Rect.fromLTWH(0, 0, width, height));
+    final pixels = ((width * MediaQuery.devicePixelRatioOf(context) / 400).ceil() * 400).clamp(800, 50000).toInt();
+    return PdfTiles(page: page, fullWidth: pixels, pageSize: widget.pageSizes[page], visible: visible, render: _renderTile);
+  });
+
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
@@ -245,7 +274,7 @@ class ContinuousPdfState extends State<ContinuousPdf> {
       }
       _viewportWidth = constraints.maxWidth;
       _layout();
-      _renderWidth = ((_viewportWidth * MediaQuery.devicePixelRatioOf(context) * _zoom / 400).ceil() * 400).clamp(800, 2400).toInt();
+      _renderWidth = ((_viewportWidth * MediaQuery.devicePixelRatioOf(context) * math.min(_zoom, 1.4) / 400).ceil() * 400).clamp(800, 1600).toInt();
       final restore = _pendingView;
       if (restore != null && widget.pageSizes.isNotEmpty) {
         final page = ((restore['page'] as num?)?.toInt() ?? 0).clamp(0, widget.pageSizes.length - 1).toInt();
@@ -253,7 +282,7 @@ class ContinuousPdfState extends State<ContinuousPdf> {
         _vertical.pendingPixels = _offsets[page] + fraction * (_offsets[page + 1] - _offsets[page]);
         _horizontal.pendingPixels = ((restore['x'] as num?)?.toDouble() ?? 0).clamp(0.0, 1.0) * _viewportWidth * _zoom;
         _pendingView = null;
-        WidgetsBinding.instance.addPostFrameCallback((_) { if(mounted) _reportPage(); });
+        WidgetsBinding.instance.addPostFrameCallback((_) { if(mounted) { _tilesChanged.value++; _reportPage(); } });
       }
       final pinching = _pinching;
       final preview = Matrix4.identity();
@@ -310,6 +339,10 @@ class ContinuousPdfState extends State<ContinuousPdf> {
                         child: _PdfPage(
                           key: ValueKey('${widget.documentId}/$index/$_renderWidth'),
                           index: index,
+                          documentId: widget.documentId,
+                          textSelection: widget.textSelection && !pinching,
+                          onTextHighlight: widget.onTextHighlight,
+                          tiles: _zoom > 1.4 && !pinching ? _tiles(index) : null,
                           render: _render,
                           paper: widget.paper,
                           highlights: widget.highlights[index] ?? const [],
@@ -336,13 +369,18 @@ class ContinuousPdfState extends State<ContinuousPdf> {
   void dispose() {
     _vertical.dispose();
     _horizontal.dispose();
+    _tilesChanged.dispose();
     super.dispose();
   }
 }
 
 class _PdfPage extends StatefulWidget {
   const _PdfPage({super.key, required this.index, required this.render, required this.paper, required this.highlights,
-    required this.marks, required this.marking, required this.marker, required this.pageSize, required this.onMark});
+    required this.marks, required this.marking, required this.marker, required this.pageSize, required this.onMark, required this.documentId, required this.textSelection, this.onTextHighlight, this.tiles});
+  final Widget? tiles;
+  final int documentId;
+  final bool textSelection;
+  final Future<bool> Function(int, List<Rect>)? onTextHighlight;
   final List<PageMark> marks;
   final bool marking;
   final String marker;
@@ -390,10 +428,12 @@ class _PdfPageState extends State<_PdfPage> {
         ? Stack(fit: StackFit.expand, children: [
             ColorFiltered(
               colorFilter: paperFilter(widget.paper),
-              child: Image.memory(_bytes!, fit: BoxFit.fill, semanticLabel: 'Strona ${widget.index + 1}'),
+              child: Stack(fit: StackFit.expand, children: [Image.memory(_bytes!, fit: BoxFit.fill, semanticLabel: 'Strona ${widget.index + 1}'), if(widget.tiles != null) widget.tiles!]),
             ),
             IgnorePointer(child: CustomPaint(painter: MatchPainter(widget.highlights))),
             MarkLayer(marks: widget.marks, enabled: widget.marking, color: widget.marker, pageSize: widget.pageSize, onDraw: widget.onMark),
+            if(widget.textSelection && !widget.marking && widget.onTextHighlight != null)
+              PdfSelectionLayer(documentId: widget.documentId, page: widget.index, onHighlight: widget.onTextHighlight!),
           ])
         : Center(
             child: _error == null
