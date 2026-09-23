@@ -633,7 +633,7 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Plikownik · 0.10.0'),
+        title: const Text('Plikownik · 0.10.1'),
         content: const SingleChildScrollView(
           child: Text(
             'Wersja testowa. Pliki otwierają się lokalnie, bez internetu.\n\n'
