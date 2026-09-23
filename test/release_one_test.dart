@@ -105,9 +105,12 @@ void main() {
       await tester.tap(find.text('Zapisz kopię')); await tester.pumpAndSettle();
     }
     expect(saves, 2);
+    expect(find.text('Zapisano kopię danych czytnika.'), findsOneWidget);
     await tester.tap(find.byTooltip('Kopia zapasowa')); await tester.pumpAndSettle();
     await tester.tap(find.text('Przywróć z pliku')); await tester.pumpAndSettle();
     expect(find.text('Nieprawidłowa kopia.'), findsOneWidget);
+    expect(find.text('Zapisano kopię danych czytnika.'), findsNothing);
+    expect(tester.widget<IconButton>(find.widgetWithIcon(IconButton, Icons.backup_outlined)).onPressed, isNotNull);
     expect(find.byTooltip('Kopia zapasowa'), findsOneWidget); expect(tester.takeException(), isNull);
   });
 }

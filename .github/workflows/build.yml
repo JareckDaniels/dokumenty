@@ -85,7 +85,7 @@ jobs:
       - name: Udostepnij APK
         uses: actions/upload-artifact@v4
         with:
-          name: plikownik-1.0.2-apk
+          name: plikownik-1.0.3-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 14
           if-no-files-found: error

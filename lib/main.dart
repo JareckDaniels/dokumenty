@@ -763,8 +763,12 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
     }
   }
 
-  void _message(String text) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  void _message(String text) {
+    // The latest operation result must not wait behind an obsolete success message.
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(text)));
+  }
 
   Future<void> _close() async {
     if (_sharing || _bookmarkBusy) return;
@@ -847,7 +851,7 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Plikownik · 1.0.2'),
+        title: const Text('Plikownik · 1.0.3'),
         content: const SingleChildScrollView(
           child: Text(
             'Pliki otwierają się lokalnie, bez internetu.\n\n'
