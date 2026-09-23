@@ -55,6 +55,8 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
   bool _choosing = false;
   bool _sharing = false;
   String _recentQuery = '';
+  String _recentSort = 'recent';
+  bool _bookmarkBusy = false;
   String _paper = 'original';
   bool _reading = false, _controlsVisible = true, _keepAwake = false, _pdfSearch = false;
   Map<int, List<Rect>> _highlights = {};
@@ -86,6 +88,7 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
         final prefs = jsonDecode(await _bridge.invokeMethod<String>('readerPrefs') ?? '{}') as Map;
         _paper = ['original', 'dark', 'warm'].contains(prefs['paper']) ? prefs['paper'] as String : 'original';
         _keepAwake = prefs['awake'] == true;
+        _recentSort = ['recent', 'oldest', 'name', 'nameDesc'].contains(prefs['sort']) ? prefs['sort'] as String : 'recent';
       } on PlatformException { /* Defaults remain usable. */ }
         on FormatException { /* Invalid stored preferences use defaults. */ }
       final uri = await _bridge.invokeMethod<String>('initialUri');
@@ -161,9 +164,102 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
     if(!mounted) return;
     if(fullscreen == true && _document?['documentId'] == documentId && _document?['kind'] == 'pdf') setState(() { _reading = true; _controlsVisible = false; _pdfSearch = false; _highlights = {}; });
     await _readerWindow();
-    try { await _bridge.invokeMethod<String>('readerPrefs', {'value': jsonEncode({'paper': _paper, 'awake': _keepAwake})}); }
-    on PlatformException { if(mounted) _message('Nie udało się zapamiętać ustawień czytania.'); }
+    await _saveReaderPrefs();
   }
+  Future<void> _saveReaderPrefs() async {
+    try { await _bridge.invokeMethod<String>('readerPrefs', {'value': jsonEncode({'paper': _paper, 'awake': _keepAwake, 'sort': _recentSort})}); }
+    on PlatformException { if(mounted) _message('Nie udało się zapamiętać ustawień.'); }
+  }
+  List<int> get _bookmarks => (_document?['bookmarks'] as List? ?? const []).map((page) => (page as num).toInt()).toList();
+  Future<bool> _changeBookmark(int page, bool add, int documentId) async {
+    if(_bookmarkBusy || _document?['documentId'] != documentId) return false;
+    setState(() => _bookmarkBusy = true);
+    try {
+      final marks = await _bridge.invokeListMethod<dynamic>('bookmark', {'documentId': documentId, 'page': page, 'add': add});
+      if(!mounted || _document?['documentId'] != documentId || marks == null) return false;
+      setState(() => _document!['bookmarks'] = marks);
+      return true;
+    } on PlatformException catch(e) {
+      if(mounted) _message(e.message ?? 'Nie udało się zapisać zakładki.');
+      return false;
+    } finally {
+      if(mounted) setState(() => _bookmarkBusy = false);
+      _drain();
+    }
+  }
+  Future<void> _showBookmarks() async {
+    final doc = _document!;
+    final id = doc['documentId'] as int;
+    final marks = _bookmarks;
+    final names = (doc['sheetNames'] as List?)?.cast<String>() ?? const <String>[];
+    bool deleting = false;
+    final target = await showModalBottomSheet<int>(context: context, showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => StatefulBuilder(builder: (context, update) => SafeArea(child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.65,
+        child: Column(children: [
+          Text('Zakładki', style: Theme.of(context).textTheme.titleLarge),
+          const Padding(padding: EdgeInsets.all(12), child: Text('Zapisane strony w tym podglądzie. Dodawaj je przyciskiem obok numeru strony.')),
+          Expanded(child: marks.isEmpty ? const Center(child: Text('Nie masz jeszcze zakładek.')) : ListView.builder(
+            itemCount: marks.length,
+            itemBuilder: (context, index) {
+              final page = marks[index];
+              return ListTile(
+                leading: const Icon(Icons.bookmark),
+                title: Text(names.length == doc['pages'] ? names[page] : 'Strona ${page + 1}', maxLines: 2, overflow: TextOverflow.ellipsis),
+                subtitle: names.length == doc['pages'] ? Text('Strona ${page + 1}') : null,
+                onTap: deleting ? null : () => Navigator.pop(context, page),
+                trailing: IconButton(tooltip: 'Usuń zakładkę strony ${page + 1}', icon: const Icon(Icons.bookmark_remove_outlined),
+                  onPressed: deleting ? null : () async {
+                    update(() => deleting = true);
+                    final removed = await _changeBookmark(page, false, id);
+                    if(context.mounted) update(() { if(removed) marks.remove(page); deleting = false; });
+                  }),
+              );
+            },
+          )),
+        ]),
+      ))),
+    );
+    if(target != null && mounted && _document?['documentId'] == id) _pdfKey.currentState?.goToPage(target);
+  }
+  String _fileSize(dynamic bytes) {
+    if(bytes is! num) return '—';
+    if(bytes < 1024) return '${bytes.toInt()} B';
+    final value = bytes < 1024 * 1024 ? bytes / 1024 : bytes / (1024 * 1024);
+    return '${value.toStringAsFixed(1).replaceAll('.', ',')} ${bytes < 1024 * 1024 ? 'KB' : 'MB'}';
+  }
+  Future<void> _fileInfo() async {
+    final doc = _document!;
+    final details = <String>[
+      doc['name'] as String,
+      'Format: ${doc['extension'].toString().toUpperCase()}',
+      'Rozmiar pliku: ${_fileSize(doc['sizeBytes'])}',
+      if(doc['kind'] == 'pdf') 'Strony podglądu: ${doc['pages']}',
+      if(doc['kind'] == 'pdf') 'Zakładki: ${_bookmarks.length}',
+      if(doc['wholeSheets'] == true) 'Widok całych arkuszy, także ukrytych.',
+      if(doc['converted'] == true && doc['wholeSheets'] != true) 'Podgląd wydruku dokumentu Office.',
+    ];
+    await showDialog<void>(context: context, builder: (context) => AlertDialog(
+      title: const Text('Informacje o pliku'),
+      content: SingleChildScrollView(child: SelectableText(details.join('\n\n'))),
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Zamknij'))],
+    ));
+  }
+  Widget _recentDetails(Map<String, dynamic> entry) {
+    final pages = (entry['pages'] as num?)?.toInt() ?? 0;
+    final last = (entry['lastPage'] as num?)?.toInt();
+    final subtitle = '${(entry['extension'] as String).toUpperCase()}${entry['sizeBytes'] == null ? '' : ' · ${_fileSize(entry['sizeBytes'])}'}';
+    if(pages <= 0 || last == null) return Text(subtitle);
+    final current = last.clamp(0, pages - 1).toInt() + 1;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(subtitle),
+      Text('Ostatnio: strona $current z $pages'),
+      const SizedBox(height: 4),
+      LinearProgressIndicator(value: current / pages, minHeight: 3),
+    ]);
+  }
+
   Future<void> _thumbnails() async {
     final doc = _document!;
     final page = await Navigator.of(context).push<int>(MaterialPageRoute(builder: (_) => PageThumbnails(
@@ -213,6 +309,11 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
     rows.sort((a, b) {
       final pinOrder = (b['pinned'] == true ? 1 : 0) - (a['pinned'] == true ? 1 : 0);
       if (pinOrder != 0) return pinOrder;
+      if (_recentSort == 'name' || _recentSort == 'nameDesc') {
+        final names = (a['name'] as String).toLowerCase().compareTo((b['name'] as String).toLowerCase());
+        if (names != 0) return _recentSort == 'name' ? names : -names;
+      }
+      if (_recentSort == 'oldest') return ((a['openedAt'] as num?) ?? 0).compareTo((b['openedAt'] as num?) ?? 0);
       return ((b['openedAt'] as num?) ?? 0).compareTo((a['openedAt'] as num?) ?? 0);
     });
     return rows;
@@ -314,7 +415,7 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
   }
 
   Future<void> _open(String uri, {bool external = false, bool wholeSheets = false}) async {
-    if (_busy || _editing || _sharing) {
+    if (_busy || _editing || _sharing || _bookmarkBusy) {
       _queuedUri = uri;
       _queuedExternal = external;
       return;
@@ -364,7 +465,7 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
   }
 
   void _drain() {
-    if (mounted && !_busy && !_editing && !_choosing && !_sharing && _queuedUri != null) {
+    if (mounted && !_busy && !_editing && !_choosing && !_sharing && !_bookmarkBusy && _queuedUri != null) {
       final uri = _queuedUri!;
       final external = _queuedExternal;
       _queuedUri = null;
@@ -453,7 +554,7 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
 
   Future<void> _close() async {
-    if (_sharing) return;
+    if (_sharing || _bookmarkBusy) return;
     if (_reading) {
       setState(() { _reading = false; _controlsVisible = true; });
       await _readerWindow();
@@ -532,7 +633,7 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Plikownik · 0.9.0'),
+        title: const Text('Plikownik · 0.10.0'),
         content: const SingleChildScrollView(
           child: Text(
             'Wersja testowa. Pliki otwierają się lokalnie, bez internetu.\n\n'
@@ -616,7 +717,7 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final document = _document;
     final isPdf = document?['kind'] == 'pdf';
-    final locked = _busy || _choosing || _sharing;
+    final locked = _busy || _choosing || _sharing || _bookmarkBusy;
     return PopScope(
       canPop: document == null && !_busy && !_externalMode && !_starting,
       onPopInvokedWithResult: (didPop, result) {
@@ -667,11 +768,15 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
                   if (value == 'pdf') _export();
                   if (value == 'reading') _readingOptions();
                   if (value == 'pages') _thumbnails();
+                  if (value == 'bookmarks') _showBookmarks();
+                  if (value == 'info') _fileInfo();
                   if (value == 'search') setState(() { _pdfSearch = !_pdfSearch; _highlights = {}; });
                   if (value == 'sheets') _switchSheets();
                 },
                 itemBuilder: (_) => [
                   if (isPdf) const PopupMenuItem(value: 'pages', child: Text('Miniatury / arkusze')),
+                  if (isPdf) PopupMenuItem(value: 'bookmarks', child: Text('Zakładki (${_bookmarks.length})')),
+                  const PopupMenuItem(value: 'info', child: Text('Informacje o pliku')),
                   if (isPdf && document['searchAvailable'] == true) const PopupMenuItem(value: 'search', child: Text('Szukaj w dokumencie')),
                   if (['xls', 'xlsx', 'ods'].contains(document['extension']))
                     PopupMenuItem(value: 'sheets', child: Text(document['wholeSheets'] == true ? 'Podgląd wydruku' : 'Widok całych arkuszy')),
@@ -819,6 +924,14 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
                 style: Theme.of(context).textTheme.titleLarge,
               ),
             ),
+            PopupMenuButton<String>(
+              tooltip: 'Sortuj dokumenty', icon: const Icon(Icons.sort),
+              onSelected: (value) { setState(() => _recentSort = value); unawaited(_saveReaderPrefs()); },
+              itemBuilder: (_) => [
+                for (final option in [('recent', 'Ostatnio otwierane'), ('oldest', 'Najdawniej otwierane'), ('name', 'Nazwa A–Z'), ('nameDesc', 'Nazwa Z–A')])
+                  CheckedPopupMenuItem(value: option.$1, checked: _recentSort == option.$1, child: Text(option.$2)),
+              ],
+            ),
             IconButton(
               onPressed: _clearRecent,
               tooltip: 'Wyczyść ostatnie dokumenty',
@@ -853,13 +966,13 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
-              subtitle: Text((entry['extension'] as String).toUpperCase()),
+              subtitle: _recentDetails(entry),
               trailing: IconButton(
                 tooltip: entry['pinned'] == true ? 'Odepnij dokument' : 'Przypnij dokument',
                 icon: Icon(entry['pinned'] == true ? Icons.push_pin : Icons.push_pin_outlined),
                 onPressed: entry['id'] == null ? null : () => _pinRecent(entry),
               ),
-              onTap: () => _open(entry['uri'] as String),
+              onTap: () => _open(entry['uri'] as String, wholeSheets: entry['wholeSheets'] == true),
             ),
           ),
         const SizedBox(height: 24),
@@ -975,9 +1088,14 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
             tooltip: 'Poprzednia strona',
             icon: const Icon(Icons.chevron_left_rounded),
           ),
-          TextButton(
+          Expanded(child: TextButton(
             onPressed: locked ? null : _goToPage,
-            child: Text('${_page + 1} / $pages'),
+            child: FittedBox(child: Text('${_page + 1} / $pages')),
+          )),
+          IconButton(
+            onPressed: locked ? null : () => _changeBookmark(_page, !_bookmarks.contains(_page), _document!['documentId'] as int),
+            tooltip: _bookmarks.contains(_page) ? 'Usuń zakładkę' : 'Dodaj zakładkę',
+            icon: Icon(_bookmarks.contains(_page) ? Icons.bookmark : Icons.bookmark_add_outlined),
           ),
           IconButton(
             onPressed: locked ? null : () => _pdfKey.currentState?.fitWidth(),

@@ -1,7 +1,54 @@
-# Plikownik 0.9.0 — wersja testowa
+# Plikownik 0.10.0 — wersja testowa
 
 Prosty czytnik dokumentów na Androida, interfejs we Flutterze.
 Silnik LibreOffice 26.2.6.3 pracuje wewnątrz aplikacji, bez serwera i bez instalowania drugiej aplikacji.
+
+## Nowości 0.10.0 — zakładki i lista dokumentów
+
+- **Zakładki stron** w PDF i podglądach Office: przycisk obok numeru strony dodaje/usuwa
+  zakładkę. Menu trzech kropek → Zakładki pokazuje listę zapisanych stron, przechodzi do
+  wybranej i pozwala usuwać poszczególne zakładki. W widoku arkuszy lista używa nazw zakładek
+  arkusza, gdy liczba nazw odpowiada liczbie stron.
+- Zakładki są osobnymi danymi Plikownika: nie zmieniają PDF ani załącznika. Są zapisywane
+  lokalnie dla zawartości pliku i typu podglądu, więc identyczna kopia ma te same zakładki.
+  Zmieniona treść otrzymuje nowy zestaw. Limit: 50 stron w dokumencie, 200 dokumentów/widoków.
+  Zakładki nie są automatycznie usuwane po przekroczeniu limitu — wyświetlany jest komunikat.
+  Czyszczenie listy ostatnich plików nie usuwa zakładek; odinstalowanie/wyczyszczenie danych aplikacji je usuwa.
+  Nie jest to import spisu treści ani zakładek zapisanych wewnątrz PDF.
+- **Postęp na liście ostatnich**: rozmiar pliku, ostatnio oglądana strona i pasek jej położenia.
+  Pasek pokazuje pozycję strony w dokumencie, nie potwierdza przeczytania treści. Starsze wpisy
+  historii otrzymają dane po ponownym otwarciu pliku. TXT/CSV nie mają podziału na strony.
+- **Sortowanie listy**: ostatnio otwierane, najdawniej otwierane, nazwa A–Z i nazwa Z–A.
+  Przypięte pozycje pozostają na górze. Sortowanie działa razem z wyszukiwaniem i jest
+  zapamiętywane niezależnie od koloru czytnika i opcji niewygaszania.
+- **Informacje o pliku** w menu dokumentu: nazwa, format, rozmiar oryginalnego pliku,
+  liczba stron bieżącego podglądu oraz liczba zakładek.
+- Przy ponownym otwarciu arkusza z listy ostatnich odtwarzany jest używany wcześniej
+  tryb całych arkuszy albo podglądu wydruku. Pozycja i zakładki odpowiadają temu samemu trybowi.
+
+### Do przetestowania w 0.10.0
+
+1. Otwórz wielostronicowy PDF, dodaj zakładki na dwóch różnych stronach, zamknij aplikację
+   i otwórz plik ponownie. Menu → Zakładki ma zawierać obie strony; dotknięcie przenosi na stronę.
+2. Usuń jedną zakładkę z listy, drugą przyciskiem przy numerze strony. Zamknij i otwórz plik —
+   usunięte zakładki nie powinny wrócić. Powtórz dodanie w podglądzie DOCX/ODT.
+3. Przeczytaj dalszą stronę PDF i wróć do ekranu głównego. Lista ma pokazać tę stronę i rozmiar.
+   Stary wpis bez postępu otwórz jeszcze raz, aby uzupełnić dane.
+4. Przetestuj wszystkie cztery sortowania oraz wyszukiwanie przy sortowaniu. Przypięte
+   pozostają nad pozostałymi. Uruchom ponownie aplikację i sprawdź zapamiętanie sortowania.
+5. Menu → Informacje o pliku: sprawdź PDF, DOCX i TXT. Dla DOCX rozmiar dotyczy pliku DOCX,
+   a liczba stron jego podglądu. Udostępnienie pliku nadal ma działać.
+6. W XLSX/ODS włącz widok całych arkuszy, wybierz dalszą zakładkę i zaznacz ją jako zakładkę
+   czytelnika. Zamknij dokument, otwórz go z ostatnich — tryb, miejsce i zakładka mają zostać.
+7. Kontrolnie sprawdź ciemny/ciepły tryb, pełny ekran, powrót do poczty/WhatsAppa i zmianę
+   rozmiaru tekstu w edytorze. Sprawdź dolny pasek również przy dużej czcionce systemowej.
+
+Lokalnie przeszły testy logiki zakładek (zapis/odczyt formatu, usuwanie, brak duplikatów,
+nieprawidłowe strony, limit i zwalnianie miejsca) oraz kompilacja Javy z API Androida/AndroidX
+z atrapami mostka Flutter. Do workflow dodano scenariusze interfejsu zakładek, błędu zapisu,
+informacji o pliku, sortowania i powrotu do widoku arkusza. Pełnych `flutter analyze`,
+`flutter test` i kompilacji APK nie wykonano lokalnie — uruchomi je GitHub Actions.
+Próby na telefonie pozostają do wykonania.
 
 ## Nowości 0.9.0 — tryb czytania
 
@@ -296,7 +343,7 @@ nie dowodzą poprawności renderowania LibreOffice.
    `pubspec.yaml` musi być bezpośrednio w katalogu repozytorium. Skopiuj również `.github` i `.gitignore`.
 3. Zrób Commit, następnie Push origin.
 4. Otwórz Actions → „Zbuduj Plikownik APK”. Pierwszy build pobiera dodatkowo około 84 MB silnika.
-5. Gdy build będzie zielony, pobierz artefakt `plikownik-0.9.0-apk`.
+5. Gdy build będzie zielony, pobierz artefakt `plikownik-0.10.0-apk`.
 6. Rozpakuj artefakt, prześlij `app-release.apk` na telefon i zainstaluj.
 7. Otwórz aplikację i wybierz plik. Przy pierwszym dokumencie Office nastąpi przygotowanie silnika.
 8. Aby otwierać pliki domyślnie: w menedżerze plików wybierz dokument → Otwórz za pomocą → Plikownik →

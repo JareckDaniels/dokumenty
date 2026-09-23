@@ -107,6 +107,21 @@ public class MainActivity extends FlutterActivity {
                         }
                         return null;
                     }); break;
+                case "bookmark":
+                    Number markId=call.argument("documentId"), markPage=call.argument("page");
+                    boolean addMark=Boolean.TRUE.equals(call.argument("add"));
+                    submit(result,() -> {
+                        if(markId==null || markId.longValue()!=documentId || pdf==null || readingKey==null || markPage==null)
+                            throw new IOException("Dokument został zamknięty. Otwórz go ponownie.");
+                        android.content.SharedPreferences marks=getSharedPreferences("page-bookmarks",MODE_PRIVATE);
+                        if(addMark && !marks.contains(readingKey) && marks.getAll().size()>=200)
+                            throw new IOException("Zakładki są już zapisane dla 200 dokumentów. Usuń zakładki z niepotrzebnego dokumentu.");
+                        String updated=ReadingBookmarks.update(marks.getString(readingKey,""),markPage.intValue(),pdf.getPageCount(),addMark);
+                        android.content.SharedPreferences.Editor edit=marks.edit();
+                        if(updated.isEmpty())edit.remove(readingKey);else edit.putString(readingKey,updated);
+                        if(!edit.commit())throw new IOException("Nie udało się zapisać zakładki. Spróbuj ponownie.");
+                        return ReadingBookmarks.read(updated,pdf.getPageCount());
+                    }); break;
                 case "searchPage":
                     Number searchId=call.argument("documentId"), searchPage=call.argument("page");
                     String searchQuery=call.argument("query");
@@ -377,6 +392,7 @@ public class MainActivity extends FlutterActivity {
         readingKey=readingHex.toString()+(wholeSheets?"-sheets":"");
         Map<String, Object> info = new HashMap<>();
         info.put("name", name); info.put("extension", extension);
+        info.put("sizeBytes",input.length());
         info.put("documentId", documentId);
         info.put("readingState",new JSONObject(getSharedPreferences("reader",MODE_PRIVATE).getString("positions","{}")).optString(readingKey,"{}"));
         info.put("searchAvailable",android.os.Build.VERSION.SDK_INT>=35);
@@ -418,6 +434,7 @@ public class MainActivity extends FlutterActivity {
                 }
             }
             info.put("pageSizes", sizes);
+            info.put("bookmarks",ReadingBookmarks.read(getSharedPreferences("page-bookmarks",MODE_PRIVATE).getString(readingKey,""),pdf.getPageCount()));
             info.put("converted", !extension.equals("pdf"));
             rememberSafely(uri, input, name, extension, info);
             currentSource = input; currentExtension = extension; currentUri = uri;
@@ -541,6 +558,7 @@ public class MainActivity extends FlutterActivity {
     private Object recentFiles() throws Exception {
         List<Map<String, Object>> result = new ArrayList<>();
         JSONArray entries = readRecentIndex();
+        JSONObject positions=new JSONObject(getSharedPreferences("reader",MODE_PRIVATE).getString("positions","{}"));
         for (int i = 0; i < entries.length(); i++) {
             JSONObject entry = entries.getJSONObject(i);
             File file = recentEntryFile(entry);
@@ -552,6 +570,12 @@ public class MainActivity extends FlutterActivity {
             row.put("extension", entry.getString("extension"));
             row.put("uri", Uri.fromFile(file).toString());
             row.put("openedAt", entry.getLong("openedAt"));
+            row.put("sizeBytes",file.length());
+            int pages=entry.optInt("pages",0);
+            row.put("pages",pages);
+            row.put("wholeSheets",entry.optBoolean("wholeSheets",false));
+            JSONObject position=positions.optJSONObject(entry.optString("readingKey",""));
+            if(pages>0 && position!=null)row.put("lastPage",Math.max(0,Math.min(pages-1,position.optInt("page",0))));
             result.add(row);
         }
         return result;
@@ -583,11 +607,11 @@ public class MainActivity extends FlutterActivity {
     }
 
     private void rememberSafely(Uri uri, File input, String name, String extension, Map<String, Object> info) {
-        try { remember(uri, input, name, extension); }
+        try { remember(uri, input, name, extension, info); }
         catch (Exception e) { info.put("recentWarning", "Plik otwarto, ale nie udało się dodać go do ostatnich dokumentów."); }
     }
 
-    private void remember(Uri uri, File input, String name, String extension) throws Exception {
+    private void remember(Uri uri, File input, String name, String extension, Map<String,Object> info) throws Exception {
         File root = recentRoot();
         if (!root.exists() && !root.mkdirs()) throw new IOException("Nie można zapisać historii.");
         JSONArray previous = readRecentIndex();
@@ -625,6 +649,9 @@ public class MainActivity extends FlutterActivity {
         JSONObject newest = new JSONObject();
         newest.put("id", id); newest.put("file", target.getName()); newest.put("name", name);
         newest.put("extension", extension); newest.put("openedAt", System.currentTimeMillis()); newest.put("pinned",pinned);
+        newest.put("readingKey",readingKey);
+        newest.put("pages",info.containsKey("pages")?info.get("pages"):0);
+        newest.put("wholeSheets",Boolean.TRUE.equals(info.get("wholeSheets")));
         next.put(newest);
         long total = target.length();
         Set<String> retained = new HashSet<>(); retained.add(target.getName());

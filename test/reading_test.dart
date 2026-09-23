@@ -58,7 +58,7 @@ void main() {
     expect(saved.arguments['documentId'], 9);
     expect(jsonDecode(saved.arguments['view'])['page'], 2);
     final preferences = calls.where((c) => c.method == 'readerPrefs' && c.arguments != null).last;
-    expect(jsonDecode(preferences.arguments['value']), {'paper': 'dark', 'awake': true});
+    expect(jsonDecode(preferences.arguments['value']), {'paper': 'dark', 'awake': true, 'sort': 'recent'});
   });
 
   testWidgets('Obrot zachowuje strone, powiekszenie i miejsce na stronie', (tester) async {

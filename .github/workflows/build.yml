@@ -64,12 +64,16 @@ jobs:
         run: |
           javac -encoding UTF-8 -d build/native-tests native/src/main/java/pl/jarekgadzina/dokumenty/ShareFiles.java test_native/ShareFilesTest.java
           java -cp build/native-tests ShareFilesTest
+      - name: Sprawdz zakladki stron
+        run: |
+          javac -encoding UTF-8 -d build/native-tests native/src/main/java/pl/jarekgadzina/dokumenty/ReadingBookmarks.java test_native/ReadingBookmarksTest.java
+          java -cp build/native-tests ReadingBookmarksTest
       - name: Zbuduj APK ARM64
         run: flutter build apk --release --target-platform android-arm64
       - name: Udostepnij APK
         uses: actions/upload-artifact@v4
         with:
-          name: plikownik-0.9.0-apk
+          name: plikownik-0.10.0-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 14
           if-no-files-found: error
