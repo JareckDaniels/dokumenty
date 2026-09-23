@@ -47,7 +47,7 @@ class _PdfSelectionLayerState extends State<PdfSelectionLayer> {
     final ok = await select();
     if(!mounted) return;
     if(!ok) { clear(); return; }
-    if(text.trim().isEmpty()) {
+    if(text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Brak tekstu w tym miejscu. Na skanie użyj zakreślacza obszaru.')));
       clear(); return;
     }

@@ -1,4 +1,4 @@
-Plikownik 1.0.1 — informacje o komponentach
+Plikownik 1.0.2 — informacje o komponentach
 
 Silnik: LibreOffice 26.2.6.3 (F-Droid versionCode 131, ARM64).
 Pakiet: https://f-droid.org/repo/org.documentfoundation.libreoffice_131.apk

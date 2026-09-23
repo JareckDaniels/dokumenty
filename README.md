@@ -1,7 +1,21 @@
-# Plikownik 1.0.1 (18)
+# Plikownik 1.0.2 (19)
 
 Offline: PDF i podglądy LibreOffice/Microsoft Office, czytanie, zakładki, notatki i udostępnianie.
 Edycja DOCX/ODT/DOC/RTF/TXT pozostaje funkcją pomocniczą. Ten pakiet zawiera źródła, nie APK.
+
+## Poprawka 1.0.2 — analiza kodu
+
+Poprawiono `text.trim().isEmpty()` na `text.trim().isEmpty` w obsłudze zaznaczania PDF.
+W Dart `isEmpty` jest właściwością, więc nie należy wywoływać jej jak funkcji.
+Klucz podpisywania i wszystkie cztery sekrety pozostają niezmienione.
+
+Do przetestowania:
+- GitHub Actions: etap `flutter analyze` ma przejść; następnie testy i budowanie APK.
+- Zaznacz słowo w PDF, skopiuj je i zakreśl kilka wierszy.
+- Przytrzymaj pusty obszar/skan bez tekstu: komunikat zamiast zamknięcia aplikacji.
+- Jeśli masz już wersję podpisaną stałym kluczem, zainstaluj jako aktualizację i sprawdź zakładki/notatki.
+
+Kontrola źródeł i spójności wersji została wykonana lokalnie. Pełny Flutter jest sprawdzany w Actions.
 
 ## Zmiana 1.0.1 — stały podpis
 
@@ -55,7 +69,7 @@ zakładki i notatki. Funkcje czytnika nie zmieniły się względem 1.0.0.
 ## Budowanie i aktualizacja
 
 Wgraj zawartość katalogu `dokumenty` do dotychczasowego repozytorium (łącznie z `.github`).
-Commit → Push → GitHub Actions. Pobierz `plikownik-1.0.1-apk` i zainstaluj APK jako aktualizację, jeśli obecna wersja używa już stałego klucza.
+Commit → Push → GitHub Actions. Pobierz `plikownik-1.0.2-apk` i zainstaluj APK jako aktualizację, jeśli obecna wersja używa już stałego klucza.
 Identyfikator aplikacji nie zmienił się. Użyj tego samego klucza podpisu co poprzednio.
 Przy pierwszej zmianie podpisu zastosuj procedurę opisaną powyżej; później nie odinstalowuj aplikacji.
 Nowa zależność: PdfBox-Android 2.0.27.0 (Apache 2.0); Gradle pobiera ją podczas budowania.
@@ -548,7 +562,7 @@ nie dowodzą poprawności renderowania LibreOffice.
    `pubspec.yaml` musi być bezpośrednio w katalogu repozytorium. Skopiuj również `.github` i `.gitignore`.
 3. Zrób Commit, następnie Push origin.
 4. Otwórz Actions → „Zbuduj Plikownik APK”. Pierwszy build pobiera dodatkowo około 84 MB silnika.
-5. Gdy build będzie zielony, pobierz artefakt `plikownik-1.0.1-apk`.
+5. Gdy build będzie zielony, pobierz artefakt `plikownik-1.0.2-apk`.
 6. Rozpakuj artefakt, prześlij `app-release.apk` na telefon i zainstaluj.
 7. Otwórz aplikację i wybierz plik. Przy pierwszym dokumencie Office nastąpi przygotowanie silnika.
 8. Aby otwierać pliki domyślnie: w menedżerze plików wybierz dokument → Otwórz za pomocą → Plikownik →
