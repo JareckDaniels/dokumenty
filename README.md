@@ -1,7 +1,74 @@
-# Plikownik 0.8.0 — wersja testowa
+# Plikownik 0.9.0 — wersja testowa
 
 Prosty czytnik dokumentów na Androida, interfejs we Flutterze.
 Silnik LibreOffice 26.2.6.3 pracuje wewnątrz aplikacji, bez serwera i bez instalowania drugiej aplikacji.
+
+## Nowości 0.9.0 — tryb czytania
+
+- **Tryb czytania** (ikona obok udostępniania): Oryginał, Ciemny i Ciepły.
+  Ciemny odwraca kolory całej strony, w tym zdjęć i wykresów: białe tło staje się czarne,
+  czarny tekst biały. Ciepły przyciemnia niebieską i zieloną składową — biel staje się
+  jasnopomarańczowa, czarny tekst pozostaje czarny. Filtry nie zmieniają zapisanych plików ani załączników.
+- **Czytaj na pełnym ekranie** ukrywa paski aplikacji i systemu. Dotknięcie dokumentu
+  pokazuje lub chowa kontrolki. Pierwsze Wstecz kończy pełny ekran, drugie zamyka dokument
+  zgodnie z wcześniejszym zachowaniem (załącznik z innej aplikacji wraca bez ekranu głównego).
+- Opcja **Nie wygaszaj ekranu** działa podczas podglądu PDF/Office; po zamknięciu dokumentu
+  normalne wygaszanie wraca. Preferencje koloru i wygaszania są zapamiętywane.
+- **Powrót do miejsca czytania**: strona, miejsce na stronie, powiększenie oraz przesunięcie
+  poziome. Zapis przy przewijaniu jest ograniczony do około jednej aktualizacji na sekundę;
+  zamknięcie dokumentu i przejście aplikacji w tło zapisują aktualną pozycję.
+  Zakładka jest powiązana z zawartością pliku (SHA-256), więc działa również dla jego identycznej
+  lokalnej kopii. Zmieniony dokument otrzymuje nową zakładkę. Pamiętamy do 100 dokumentów/widoków.
+- **Miniatury / arkusze** w menu trzech kropek: siatka stron i przejście do wybranej strony.
+  Ładowane są małe obrazy widocznych miniatur, a nie wszystkie strony naraz.
+- **Szukaj w dokumencie** w tym samym menu: PDF oraz podgląd Office, podświetlenie aktywnego
+  wyniku i poprzedni/następny wynik. Wyszukiwanie postępuje stronami i można je zatrzymać.
+  Wymaga Androida 15/API 35 lub nowszego; na starszych urządzeniach opcja jest ukryta.
+  Nie obejmuje OCR skanów. Limit 200 znaków zapytania i 500 wyników.
+- **Widok całych arkuszy** dla XLS/XLSX/ODS: jedna zakładka na jednej dużej stronie, wybór
+  zakładki po nazwie w siatce miniatur. Można wrócić do zwykłego podglądu wydruku.
+  To nadal podgląd PDF, nie siatka edytowalnych komórek. Zgodnie z zachowaniem silnika
+  obejmuje również ukryte arkusze — przed włączeniem pokazujemy potwierdzenie.
+  Udostępniany/eksportowany PDF ma układ aktualnego podglądu, a oryginalny arkusz pozostaje bez zmian.
+  Jeżeli silnik zwróci inną liczbę stron niż nazw zakładek, miniatury pokazują numery stron,
+  aby nie przypisać stronie błędnej nazwy.
+- Powiększenie do 12×, dopasowanie do szerokości, zachowanie względnego miejsca po obrocie.
+  Rozdzielczość strony dostosowuje się do ekranu i powiększenia (do 2400 px szerokości / 3500 px
+  wysokości). Bardzo rozległe arkusze mogą być niewyraźne — nie ma jeszcze renderowania kafelkowego.
+  Nie wykonujemy ponownego renderowania przy samej zmianie kolorów.
+
+### Do przetestowania w 0.9.0
+
+1. **Kolory:** PDF z tekstem i zdjęciem → Tryb czytania → Ciemny, Ciepły, Oryginał.
+   Ciemny ma mieć czarne tło i jasny tekst, ciepły jasnopomarańczowe tło i ciemny tekst.
+   Udostępnij PDF — odbiorca ma dostać oryginalne kolory.
+2. **Pełny ekran:** włącz, przewijaj palcem, powiększ, dotknij aby pokazać i ponownie schować
+   kontrolki. Sprawdź gesty systemowe. Wstecz ma najpierw przywrócić zwykły podgląd.
+3. **Zapamiętywanie:** przewiń na dalszą stronę, powiększ, przesuń poziomo, zamknij i otwórz
+   ten sam plik z ostatnich. Powtórz po zamknięciu całej aplikacji.
+4. **Obrót:** w środku długiego PDF obróć telefon pion/poziom, również przy powiększeniu.
+   Numer strony i miejsce czytania mają zostać zachowane, bez drgania przy szczypaniu.
+5. **Miniatury:** otwórz długi PDF, wybierz odległą stronę. Sprawdź płynność przewijania siatki.
+6. **Wyszukiwanie:** PDF z tekstem oraz DOCX/ODT → szukaj słowa obecnego na kilku stronach,
+   użyj następnego/poprzedniego wyniku; przetestuj brak wyników i przerwanie wyszukiwania.
+   Skan bez tekstu ma zwrócić brak wyników, a nie zawiesić aplikację.
+7. **Arkusze:** XLSX i ODS z kilkoma zakładkami → Widok całych arkuszy → Miniatury / arkusze.
+   Sprawdź nazwy, szeroką tabelę, powrót do podglądu wydruku i udostępniony PDF.
+8. **Wygaszanie i powroty:** włącz Nie wygaszaj ekranu, odczekaj zwykły czas wygaszania;
+   potem zamknij dokument i sprawdź przywrócenie wygaszania. Otwórz dokument z WhatsAppa/poczty
+   i wróć do aplikacji źródłowej; sprawdź też udostępnianie i edycję po użyciu trybu czytania.
+
+Lokalna weryfikacja: kompilacja natywnej Javy z API Androida/AndroidX i atrapami mostka Flutter,
+kontrole składni plików pomocniczych i struktury źródeł. Do workflow dodano scenariusze Flutter:
+pełny ekran, zapis zakładki, obrót, wyszukiwanie/cancel i leniwe miniatury. Nie uruchomiono lokalnie
+`flutter analyze`, `flutter test`, silnika LibreOffice ani APK na telefonie; workflow wykona
+analizę, testy i pełną kompilację. Ocena płynności i współpracy z ColorOS wymaga telefonu.
+
+Źródła użytych interfejsów:
+- https://developer.android.com/develop/ui/views/layout/immersive
+- https://developer.android.com/reference/android/graphics/pdf/PdfRenderer.Page
+- https://developer.android.com/reference/android/graphics/pdf/models/PageMatchBounds
+- https://help.libreoffice.org/latest/en-US/text/shared/guide/pdf_params.html (`SinglePageSheets`)
 
 ## Nowości 0.8.0 — czytanie i udostępnianie
 
@@ -229,7 +296,7 @@ nie dowodzą poprawności renderowania LibreOffice.
    `pubspec.yaml` musi być bezpośrednio w katalogu repozytorium. Skopiuj również `.github` i `.gitignore`.
 3. Zrób Commit, następnie Push origin.
 4. Otwórz Actions → „Zbuduj Plikownik APK”. Pierwszy build pobiera dodatkowo około 84 MB silnika.
-5. Gdy build będzie zielony, pobierz artefakt `plikownik-0.8.0-apk`.
+5. Gdy build będzie zielony, pobierz artefakt `plikownik-0.9.0-apk`.
 6. Rozpakuj artefakt, prześlij `app-release.apk` na telefon i zainstaluj.
 7. Otwórz aplikację i wybierz plik. Przy pierwszym dokumencie Office nastąpi przygotowanie silnika.
 8. Aby otwierać pliki domyślnie: w menedżerze plików wybierz dokument → Otwórz za pomocą → Plikownik →

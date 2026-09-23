@@ -48,6 +48,8 @@ public class MainActivity extends FlutterActivity {
     private String currentName;
     private Uri currentUri;
     private long documentId = 0;
+    private String readingKey;
+    private boolean readerFullscreen, readerAwake;
     private static final Set<String> SUPPORTED = new HashSet<>(Arrays.asList(
         "pdf", "txt", "csv", "doc", "docx", "odt", "xls", "xlsx", "ods", "rtf"));
     private static final String[] TYPES = {
@@ -77,7 +79,58 @@ public class MainActivity extends FlutterActivity {
                     break;
                 case "open":
                     String uri = call.argument("uri");
-                    submit(result, () -> open(Uri.parse(Objects.requireNonNull(uri)))); break;
+                    boolean wholeSheets=Boolean.TRUE.equals(call.argument("wholeSheets"));
+                    submit(result, () -> open(Uri.parse(Objects.requireNonNull(uri)),wholeSheets)); break;
+                case "readerWindow":
+                    readerFullscreen=Boolean.TRUE.equals(call.argument("fullscreen"));
+                    readerAwake=Boolean.TRUE.equals(call.argument("awake"));
+                    applyReaderWindow(); result.success(null); break;
+                case "readerPrefs":
+                    String prefs=call.argument("value");
+                    if(prefs!=null)getSharedPreferences("reader",MODE_PRIVATE).edit().putString("prefs",prefs).apply();
+                    result.success(getSharedPreferences("reader",MODE_PRIVATE).getString("prefs","{}")); break;
+                case "saveReading":
+                    Number savedId=call.argument("documentId");
+                    String view=call.argument("view");
+                    submit(result,() -> {
+                        if(savedId!=null && savedId.longValue()==documentId && readingKey!=null && view!=null && view.length()<1000) {
+                            JSONObject all=new JSONObject(getSharedPreferences("reader",MODE_PRIVATE).getString("positions","{}"));
+                            JSONObject state=new JSONObject(view); state.put("time",System.currentTimeMillis());
+                            all.put(readingKey,state);
+                            while(all.length()>100) {
+                                String oldest=null; long time=Long.MAX_VALUE;
+                                Iterator<String> keys=all.keys();
+                                while(keys.hasNext()){String key=keys.next();long t=all.getJSONObject(key).optLong("time",0);if(t<time){time=t;oldest=key;}}
+                                if(oldest==null)break;all.remove(oldest);
+                            }
+                            getSharedPreferences("reader",MODE_PRIVATE).edit().putString("positions",all.toString()).apply();
+                        }
+                        return null;
+                    }); break;
+                case "searchPage":
+                    Number searchId=call.argument("documentId"), searchPage=call.argument("page");
+                    String searchQuery=call.argument("query");
+                    submit(result,() -> {
+                        if(searchId==null || searchId.longValue()!=documentId || pdf==null)throw new IOException("Dokument został zamknięty.");
+                        if(searchQuery==null || searchQuery.isEmpty() || searchQuery.length()>200)throw new IOException("Wpisz od 1 do 200 znaków.");
+                        if(android.os.Build.VERSION.SDK_INT<35)throw new IOException("Wyszukiwanie PDF wymaga Androida 15 lub nowszego.");
+                        List<Object> matches=new ArrayList<>();
+                        try(PdfRenderer.Page page=pdf.openPage(searchPage.intValue())) {
+                            // Reflection retains installation on API 26; searchText is public API 35.
+                            List<?> found=(List<?>)PdfRenderer.Page.class.getMethod("searchText",String.class).invoke(page,searchQuery);
+                            for(Object match:found) {
+                                List<?> bounds=(List<?>)match.getClass().getMethod("getBounds").invoke(match);
+                                List<Object> rectangles=new ArrayList<>();
+                                for(Object bound:bounds) {
+                                    android.graphics.RectF r=(android.graphics.RectF)bound;
+                                    rectangles.add(Arrays.asList(r.left/page.getWidth(),r.top/page.getHeight(),r.right/page.getWidth(),r.bottom/page.getHeight()));
+                                }
+                                matches.add(rectangles);
+                                if(matches.size()>=500)break;
+                            }
+                        }
+                        return matches;
+                    }); break;
                 case "render":
                     Number index = call.argument("page"); Number width = call.argument("width");
                     Number requestedDocument = call.argument("documentId");
@@ -288,7 +341,7 @@ public class MainActivity extends FlutterActivity {
         result.error("DOCUMENT_ERROR", message == null ? "Nie udało się otworzyć dokumentu." : message, null);
     }
 
-    private Map<String, Object> open(Uri uri) throws Exception {
+    private Map<String, Object> open(Uri uri, boolean wholeSheets) throws Exception {
         String scheme = uri.getScheme();
         if (!"content".equals(scheme) && !"file".equals(scheme)) throw new IOException("Obsługiwane są pliki lokalne. Pobierz dokument na telefon.");
         closePdf();
@@ -318,9 +371,16 @@ public class MainActivity extends FlutterActivity {
             copy(in, out, MAX_FILE);
         }
         currentName = name;
+        MessageDigest readingDigest=MessageDigest.getInstance("SHA-256");
+        try(InputStream hashInput=new FileInputStream(input)){byte[] buf=new byte[65536];int n;while((n=hashInput.read(buf))!=-1)readingDigest.update(buf,0,n);}
+        StringBuilder readingHex=new StringBuilder();for(byte b:readingDigest.digest())readingHex.append(String.format(Locale.ROOT,"%02x",b&255));
+        readingKey=readingHex.toString()+(wholeSheets?"-sheets":"");
         Map<String, Object> info = new HashMap<>();
         info.put("name", name); info.put("extension", extension);
         info.put("documentId", documentId);
+        info.put("readingState",new JSONObject(getSharedPreferences("reader",MODE_PRIVATE).getString("positions","{}")).optString(readingKey,"{}"));
+        info.put("searchAvailable",android.os.Build.VERSION.SDK_INT>=35);
+        info.put("wholeSheets",wholeSheets);
         if (extension.equals("txt") || extension.equals("csv")) {
             if (input.length() > 2 * 1024 * 1024) throw new IOException("Podgląd tekstu obsługuje pliki do 2 MB.");
             info.put("kind", "text"); info.put("text", decodeText(Files.readAllBytes(input.toPath())));
@@ -335,7 +395,12 @@ public class MainActivity extends FlutterActivity {
             if (document == null) throw new IOException("Silnik nie otworzył dokumentu. Plik może być uszkodzony lub zabezpieczony hasłem.");
             try {
                 preview = new File(dir, "preview.pdf");
-                document.saveAs(Uri.fromFile(preview).toString(), "pdf", "");
+                boolean sheetView=wholeSheets && Arrays.asList("xls","xlsx","ods").contains(extension);
+                List<String> sheetNames=new ArrayList<>();
+                if(sheetView)for(int i=0;i<document.getParts();i++)sheetNames.add(document.getPartName(i));
+                String options=sheetView?"{\"SinglePageSheets\":{\"type\":\"boolean\",\"value\":\"true\"}}":"";
+                document.saveAs(Uri.fromFile(preview).toString(), "pdf", options);
+                if(sheetView)info.put("sheetNames",sheetNames);
                 if (!preview.isFile() || preview.length() < 5) throw new IOException("Nie udało się przygotować podglądu PDF.");
             } finally { document.destroy(); }
         }
@@ -390,7 +455,7 @@ public class MainActivity extends FlutterActivity {
     private byte[] render(int index, int requestedWidth) throws IOException {
         if (pdf == null || index < 0 || index >= pdf.getPageCount()) throw new IOException("Nieprawidłowy numer strony.");
         try (PdfRenderer.Page page = pdf.openPage(index)) {
-            double scale = Math.min(Math.max(720, Math.min(requestedWidth, 2400)) / (double) page.getWidth(), 3500.0 / page.getHeight());
+            double scale = Math.min(Math.max(160, Math.min(requestedWidth, 2400)) / (double) page.getWidth(), 3500.0 / page.getHeight());
             Bitmap bitmap = Bitmap.createBitmap(Math.max(1, (int) (page.getWidth() * scale)), Math.max(1, (int) (page.getHeight() * scale)), Bitmap.Config.ARGB_8888);
             try {
                 bitmap.eraseColor(Color.WHITE);
@@ -403,6 +468,7 @@ public class MainActivity extends FlutterActivity {
     }
     private void closePdf() throws IOException {
         documentId++;
+        readingKey=null;
         if (pdf != null) { pdf.close(); pdf = null; }
         if (descriptor != null) { descriptor.close(); descriptor = null; }
         displayedPdf = null;
@@ -580,6 +646,18 @@ public class MainActivity extends FlutterActivity {
         File[] children = f.listFiles();
         if (children != null) for (File child : children) removeTree(child);
         f.delete();
+    }
+    private void applyReaderWindow() {
+        androidx.core.view.WindowInsetsControllerCompat controller=new androidx.core.view.WindowInsetsControllerCompat(getWindow(),getWindow().getDecorView());
+        controller.setSystemBarsBehavior(androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        if(readerFullscreen)controller.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars());
+        else controller.show(androidx.core.view.WindowInsetsCompat.Type.systemBars());
+        if(readerAwake)getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        else getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+    @Override public void onWindowFocusChanged(boolean focus) {
+        super.onWindowFocusChanged(focus);
+        if(focus && officeEditor==null)applyReaderWindow();
     }
     @Override protected void onDestroy() {
         if (officeEditor != null) officeEditor.dispose();

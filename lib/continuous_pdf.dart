@@ -11,10 +11,20 @@ class ContinuousPdf extends StatefulWidget {
     required this.documentId,
     required this.pageSizes,
     required this.onPageChanged,
+    this.initialView = const {},
+    this.onViewChanged,
+    this.onTap,
+    this.paper = 'original',
+    this.highlights = const {},
   });
   final int documentId;
   final List<Size> pageSizes;
   final ValueChanged<int> onPageChanged;
+  final Map<String, dynamic> initialView;
+  final VoidCallback? onViewChanged;
+  final VoidCallback? onTap;
+  final String paper;
+  final Map<int, List<Rect>> highlights;
   @override
   State<ContinuousPdf> createState() => ContinuousPdfState();
 }
@@ -27,6 +37,7 @@ class ContinuousPdfState extends State<ContinuousPdf> {
   Future<void> _renderQueue = Future<void>.value();
   double _zoom = 1;
   double _viewportWidth = 1;
+  int _renderWidth = 1200;
   double _startZoom = 1, _startDistance = 1;
   Offset _anchor = Offset.zero;
   Offset _pinchStart = Offset.zero;
@@ -36,17 +47,40 @@ class ContinuousPdfState extends State<ContinuousPdf> {
   List<double> _offsets = [0];
   int _reportedPage = -1;
   int _layoutSerial = 0;
+  bool _restored = false;
+  Map<String, dynamic>? _pendingView;
+  Map<String, dynamic> get view {
+    final offset = _vertical.hasClients ? _vertical.offset : 0.0;
+    final page = _pageAt(offset.clamp(0.0, double.infinity));
+    final extent = _offsets.length > page + 1 ? _offsets[page + 1] - _offsets[page] : 1.0;
+    return {'page': page, 'fraction': ((offset - _offsets[page]) / extent).clamp(0.0, 1.0),
+      'zoom': _zoom, 'x': _horizontal.hasClients ? _horizontal.offset / math.max(1.0, _viewportWidth * _zoom) : 0.0};
+  }
+  void _viewChanged() {
+    WidgetsBinding.instance.addPostFrameCallback((_) { if(mounted) widget.onViewChanged?.call(); });
+  }
+  void revealMatch(int page, Rect rect) {
+    if (!_vertical.hasClients || page < 0 || page >= widget.pageSizes.length) return;
+    final width = math.max(1.0, _viewportWidth - 16) * _zoom;
+    final height = width * widget.pageSizes[page].height / widget.pageSizes[page].width;
+    _vertical.jumpTo((_offsets[page] + 8 * _zoom + rect.top * height - 80).clamp(0.0, _vertical.position.maxScrollExtent));
+    if(_horizontal.hasClients) _horizontal.jumpTo((rect.left * width - 24).clamp(0.0, _horizontal.position.maxScrollExtent));
+  }
 
   @override
   void initState() {
     super.initState();
     _vertical.addListener(_reportPage);
+    _vertical.addListener(_viewChanged);
+    _horizontal.addListener(_viewChanged);
   }
 
   @override
   void didUpdateWidget(covariant ContinuousPdf oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.documentId != widget.documentId) {
+      _restored = false;
+      _pendingView = null;
       _zoom = 1;
       _reportedPage = -1;
       _pointers.clear();
@@ -56,11 +90,7 @@ class ContinuousPdfState extends State<ContinuousPdf> {
       _horizontal.pendingPixels = 0;
       _layoutSerial++;
       _layout();
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        if (_vertical.hasClients) _vertical.jumpTo(0);
-        if (_horizontal.hasClients) _horizontal.jumpTo(0);
-      });
+
     }
   }
 
@@ -117,7 +147,7 @@ class ContinuousPdfState extends State<ContinuousPdf> {
   }
 
   void _commitZoom(double value, Offset focal, Offset anchor) {
-    final zoom = value.clamp(1.0, 4.0);
+    final zoom = value.clamp(1.0, 12.0);
     final serial = ++_layoutSerial;
     _vertical.pendingPixels = anchor.dy * zoom - focal.dy;
     _horizontal.pendingPixels = anchor.dx * zoom - focal.dx;
@@ -129,7 +159,7 @@ class ContinuousPdfState extends State<ContinuousPdf> {
     // Scroll positions consume their targets during layout, before the first paint
     // at the new zoom. No visible frame at an intermediate offset.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && serial == _layoutSerial) _reportPage();
+      if (mounted && serial == _layoutSerial) { _reportPage(); _viewChanged(); }
     });
   }
 
@@ -159,7 +189,7 @@ class ContinuousPdfState extends State<ContinuousPdf> {
       _pinchFocal = (points[0] + points[1]) / 2;
       _previewZoom =
           (_startZoom * (points[0] - points[1]).distance / _startDistance)
-              .clamp(1.0, 4.0);
+              .clamp(1.0, 12.0);
     });
   }
 
@@ -171,6 +201,7 @@ class ContinuousPdfState extends State<ContinuousPdf> {
 
   Future<Uint8List?> _render(int index, bool Function() stillVisible) {
     final documentId = widget.documentId;
+    final renderWidth = _renderWidth;
     final result = Completer<Uint8List?>();
     _renderQueue = _renderQueue.then((_) async {
       if (!mounted || !stillVisible() || documentId != widget.documentId) {
@@ -181,7 +212,7 @@ class ContinuousPdfState extends State<ContinuousPdf> {
         result.complete(
           await _bridge.invokeMethod<Uint8List>('render', {
             'page': index,
-            'width': 1800,
+            'width': renderWidth,
             'documentId': documentId,
           }),
         );
@@ -195,8 +226,25 @@ class ContinuousPdfState extends State<ContinuousPdf> {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
+      if (!_restored) {
+        _pendingView = widget.initialView;
+        _zoom = ((widget.initialView['zoom'] as num?)?.toDouble() ?? 1).clamp(1.0, 12.0);
+        _restored = true;
+      } else if ((_viewportWidth - constraints.maxWidth).abs() > 0.5) {
+        _pendingView = view;
+      }
       _viewportWidth = constraints.maxWidth;
       _layout();
+      _renderWidth = ((_viewportWidth * MediaQuery.devicePixelRatioOf(context) * _zoom / 400).ceil() * 400).clamp(800, 2400).toInt();
+      final restore = _pendingView;
+      if (restore != null && widget.pageSizes.isNotEmpty) {
+        final page = ((restore['page'] as num?)?.toInt() ?? 0).clamp(0, widget.pageSizes.length - 1).toInt();
+        final fraction = ((restore['fraction'] as num?)?.toDouble() ?? 0).clamp(0.0, 1.0);
+        _vertical.pendingPixels = _offsets[page] + fraction * (_offsets[page + 1] - _offsets[page]);
+        _horizontal.pendingPixels = ((restore['x'] as num?)?.toDouble() ?? 0).clamp(0.0, 1.0) * _viewportWidth * _zoom;
+        _pendingView = null;
+        WidgetsBinding.instance.addPostFrameCallback((_) { if(mounted) _reportPage(); });
+      }
       final pinching = _pinching;
       final preview = Matrix4.identity();
       if (pinching) {
@@ -209,8 +257,10 @@ class ContinuousPdfState extends State<ContinuousPdf> {
         );
         preview.translateByDouble(-_pinchStart.dx, -_pinchStart.dy, 0, 1);
       }
-      return ColoredBox(
-        color: const Color(0xff333a3b),
+      return GestureDetector(
+        onTap: widget.onTap,
+        child: ColoredBox(
+        color: widget.paper == 'dark' ? Colors.black : widget.paper == 'warm' ? const Color(0xff594938) : const Color(0xff333a3b),
         child: Listener(
           behavior: HitTestBehavior.opaque,
           onPointerDown: _down,
@@ -248,9 +298,11 @@ class ContinuousPdfState extends State<ContinuousPdf> {
                       itemBuilder: (context, index) => Padding(
                         padding: EdgeInsets.all(8 * _zoom),
                         child: _PdfPage(
-                          key: ValueKey('${widget.documentId}/$index'),
+                          key: ValueKey('${widget.documentId}/$index/$_renderWidth'),
                           index: index,
                           render: _render,
+                          paper: widget.paper,
+                          highlights: widget.highlights[index] ?? const [],
                         ),
                       ),
                     ),
@@ -260,6 +312,7 @@ class ContinuousPdfState extends State<ContinuousPdf> {
             ),
           ),
         ),
+      ),
       );
     },
   );
@@ -273,7 +326,9 @@ class ContinuousPdfState extends State<ContinuousPdf> {
 }
 
 class _PdfPage extends StatefulWidget {
-  const _PdfPage({super.key, required this.index, required this.render});
+  const _PdfPage({super.key, required this.index, required this.render, required this.paper, required this.highlights});
+  final String paper;
+  final List<Rect> highlights;
   final int index;
   final Future<Uint8List?> Function(int, bool Function()) render;
   @override
@@ -309,13 +364,15 @@ class _PdfPageState extends State<_PdfPage> {
 
   @override
   Widget build(BuildContext context) => ColoredBox(
-    color: Colors.white,
+    color: widget.paper == 'dark' ? Colors.black : widget.paper == 'warm' ? const Color(0xffffdbab) : Colors.white,
     child: _bytes != null
-        ? Image.memory(
-            _bytes!,
-            fit: BoxFit.fill,
-            semanticLabel: 'Strona ${widget.index + 1}',
-          )
+        ? Stack(fit: StackFit.expand, children: [
+            ColorFiltered(
+              colorFilter: paperFilter(widget.paper),
+              child: Image.memory(_bytes!, fit: BoxFit.fill, semanticLabel: 'Strona ${widget.index + 1}'),
+            ),
+            IgnorePointer(child: CustomPaint(painter: MatchPainter(widget.highlights))),
+          ])
         : Center(
             child: _error == null
                 ? const CircularProgressIndicator()
@@ -324,7 +381,7 @@ class _PdfPageState extends State<_PdfPage> {
                     children: [
                       Text(
                         _error!,
-                        style: const TextStyle(color: Colors.black),
+                        style: TextStyle(color: widget.paper == 'dark' ? Colors.white : Colors.black),
                         textAlign: TextAlign.center,
                       ),
                       TextButton(
@@ -383,4 +440,30 @@ class _ZoomScrollPosition extends ScrollPositionWithSingleContext {
     }
     return super.applyContentDimensions(minScrollExtent, maxScrollExtent);
   }
+}
+
+// View-only filters: never applied to exported or shared bytes.
+ColorFilter paperFilter(String paper) {
+  if (paper == 'dark') return const ColorFilter.matrix([
+    -1,0,0,0,255, 0,-1,0,0,255, 0,0,-1,0,255, 0,0,0,1,0,
+  ]);
+  if (paper == 'warm') return const ColorFilter.matrix([
+    1,0,0,0,0, 0,0.86,0,0,0, 0,0,0.67,0,0, 0,0,0,1,0,
+  ]);
+  return const ColorFilter.matrix([
+    1,0,0,0,0, 0,1,0,0,0, 0,0,1,0,0, 0,0,0,1,0,
+  ]);
+}
+class MatchPainter extends CustomPainter {
+  MatchPainter(this.rectangles);
+  final List<Rect> rectangles;
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = const Color(0x88ffb300);
+    for (final r in rectangles) {
+      canvas.drawRect(Rect.fromLTRB(r.left * size.width, r.top * size.height, r.right * size.width, r.bottom * size.height), paint);
+    }
+  }
+  @override
+  bool shouldRepaint(MatchPainter oldDelegate) => oldDelegate.rectangles != rectangles;
 }
