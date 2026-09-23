@@ -1,7 +1,49 @@
-# Plikownik 0.11.0 — wersja testowa
+# Plikownik 0.12.0 — wersja testowa
 
 Prosty czytnik dokumentów na Androida, interfejs we Flutterze.
 Silnik LibreOffice 26.2.6.3 pracuje wewnątrz aplikacji, bez serwera i bez instalowania drugiej aplikacji.
+
+## Nowości 0.12.0 — wyszukiwanie i udostępnianie notatek
+
+- **Zaznaczenia i notatki** mają wyszukiwanie w komentarzach bez rozróżniania wielkości liter.
+  Wpisanie numeru strony znajduje również zaznaczenia z tej strony.
+- Filtry **Wszystkie / Żółty / Zielony / Różowy** działają razem z wyszukiwaniem. Licznik pokazuje
+  liczbę widocznych pozycji względem wszystkich. Zmiana koloru lub komentarza może usunąć
+  pozycję z bieżącego filtra; samo zaznaczenie nadal jest zapisane.
+- Menu trzech kropek przy pozycji: **Edytuj notatkę i kolor**, **Kopiuj notatkę**, **Usuń zaznaczenie**.
+  Kopiowanie przenosi pełny komentarz do schowka, zachowując podziały wierszy. Dla pustej notatki
+  opcja kopiowania jest ukryta. Znacznik potwierdza skopiowanie.
+- **Udostępnij wszystkie (TXT)** tworzy plik `nazwa-notatki.txt` w UTF-8 i otwiera systemowy
+  wybór aplikacji Androida. Plik zawiera nazwę dokumentu oraz komentarze, numery stron i kolory,
+  posortowane według strony i położenia. Obejmuje wszystkie zaznaczenia, niezależnie od filtra.
+  Pozycje bez komentarza mają opis „Zaznaczony fragment bez notatki”.
+- Zestawienie **nie zawiera tekstu ani obrazów zakreślonych fragmentów**, nie wykonuje OCR.
+  Nie jest też kopią zapasową do importowania zaznaczeń. PDF nadal jest udostępniany bez
+  lokalnych zakreśleń; istniejące PDF/DOCX i notatki nie są zmieniane podczas przygotowania TXT.
+- Dla widoku całych arkuszy zestawienie wyjaśnia znaczenie numerów stron. Udostępniona kopia
+  TXT jest niezależna od otwartego podglądu, tak jak pozostałe załączniki aplikacji.
+- Panel notatek dostosowuje wysokość do klawiatury, a przy małej ilości miejsca jego górna
+  część przewija się. Po przerwanym/nieudanym udostępnieniu można spróbować ponownie.
+
+### Do przetestowania w 0.12.0
+
+1. Dodaj kilka komentarzy w różnych kolorach. Wyszukaj fragment tekstu, także wielkimi
+   literami, oraz numer strony. Sprawdź wszystkie filtry kolorów i brak wyników.
+2. Przy aktywnym filtrze edytuj komentarz i zmień kolor. Sprawdź, czy zmienił się właściwy
+   wpis i czy pozostałe notatki są nienaruszone. Usuń jedną pozycję przy włączonym filtrze.
+3. W menu pozycji wybierz Kopiuj notatkę i wklej do wiadomości lub edytora TXT. Sprawdź
+   polskie znaki, pełną treść i podziały wierszy.
+4. Udostępnij wszystkie (TXT) przez pocztę lub komunikator. Otwórz załącznik na telefonie
+   i komputerze: sprawdź nazwę, komentarze i numery stron. Przy aktywnym filtrze TXT nadal
+   ma zawierać wszystkie zaznaczenia z dokumentu.
+5. Anuluj systemowe udostępnianie, spróbuj ponownie, potem wróć do dokumentu i przewijaj.
+6. Sprawdź panel notatek z klawiaturą, pionowo i poziomo, oraz zwykłe udostępnianie PDF/DOCX.
+
+Lokalnie przeszły testy przechowywania zaznaczeń i zestawienia TXT (kolejność, polskie znaki,
+nowe wiersze, brak zmian w danych, puste komentarze i brak wpisów) oraz kompilacja natywnej Javy
+z API Androida/AndroidX i atrapami mostka Flutter. Dodano scenariusz interfejsu filtrowania,
+kopiowania, edycji właściwego wpisu i ponawiania udostępnienia. Pełnych `flutter analyze`,
+`flutter test` i budowania APK nie wykonano lokalnie — uruchomi je GitHub Actions.
 
 ## Nowości 0.11.0 — zakreślacz i notatki
 
@@ -405,7 +447,7 @@ nie dowodzą poprawności renderowania LibreOffice.
    `pubspec.yaml` musi być bezpośrednio w katalogu repozytorium. Skopiuj również `.github` i `.gitignore`.
 3. Zrób Commit, następnie Push origin.
 4. Otwórz Actions → „Zbuduj Plikownik APK”. Pierwszy build pobiera dodatkowo około 84 MB silnika.
-5. Gdy build będzie zielony, pobierz artefakt `plikownik-0.11.0-apk`.
+5. Gdy build będzie zielony, pobierz artefakt `plikownik-0.12.0-apk`.
 6. Rozpakuj artefakt, prześlij `app-release.apk` na telefon i zainstaluj.
 7. Otwórz aplikację i wybierz plik. Przy pierwszym dokumencie Office nastąpi przygotowanie silnika.
 8. Aby otwierać pliki domyślnie: w menedżerze plików wybierz dokument → Otwórz za pomocą → Plikownik →

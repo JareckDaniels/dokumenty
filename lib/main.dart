@@ -200,6 +200,14 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
     setState(() { _markMode = true; _reading = false; _controlsVisible = true; _pdfSearch = false; _highlights = {}; _lastAddedMark = null; });
     unawaited(_readerWindow());
   }
+  Future<void> _shareNotes(int id) async {
+    if(_sharing || _bookmarkBusy || _busy) return;
+    if(_document?['documentId'] != id) { _message('Otwórz ponownie listę notatek w aktualnym dokumencie.'); return; }
+    setState(() => _sharing = true);
+    try { await _bridge.invokeMethod<void>('shareNotes', {'documentId': id}); }
+    on PlatformException catch(e) { if(mounted) _message(e.message ?? 'Nie udało się udostępnić notatek.'); }
+    finally { if(mounted) setState(() => _sharing = false); _drain(); }
+  }
   Future<void> _showHighlights() async {
     final id = _document!['documentId'] as int;
     final entries = List<PageMark>.from(_marks)..sort((a,b) {
@@ -207,43 +215,88 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
       return page != 0 ? page : a.rect.top.compareTo(b.rect.top);
     });
     bool saving = false;
+    String query = '', color = 'all';
+    String? copied;
     final target = await showModalBottomSheet<PageMark>(context: context, showDragHandle: true, isScrollControlled: true,
-      builder: (context) => StatefulBuilder(builder: (context, update) => SafeArea(child: SizedBox(
-        height: MediaQuery.sizeOf(context).height * 0.75,
-        child: Column(children: [
-          Text('Zaznaczenia i notatki', style: Theme.of(context).textTheme.titleLarge),
-          const Padding(padding: EdgeInsets.all(12), child: Text('Zapisane tylko w Plikowniku. Nie są dołączane do udostępnianego PDF.')),
-          Expanded(child: entries.isEmpty ? const Center(child: Text('Brak zaznaczeń. Użyj zakreślacza.')) : ListView.builder(
-            itemCount: entries.length,
-            itemBuilder: (context, index) {
-              final mark = entries[index];
-              return ListTile(
-                leading: Icon(Icons.format_color_fill, color: markerColor(mark.color)),
-                title: Text('Strona ${mark.page + 1} · ${markerName(mark.color)}'),
-                subtitle: Text(mark.note.isEmpty ? 'Bez notatki' : mark.note, maxLines: 2, overflow: TextOverflow.ellipsis),
-                onTap: saving ? null : () => Navigator.pop(context, mark),
-                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                  IconButton(tooltip: 'Edytuj notatkę', icon: const Icon(Icons.edit_note), onPressed: saving ? null : () async {
-                    final data = await showDialog<Map<String,dynamic>>(context: context, builder: (_) => MarkNoteDialog(mark: mark));
-                    if(data == null || !context.mounted) return;
-                    update(() => saving = true);
-                    final success = await _changeHighlight('edit', data, id);
-                    if(context.mounted) update(() {
-                      if(success) entries[index] = PageMark(id: mark.id, page: mark.page, rect: mark.rect, color: data['color'] as String, note: data['note'] as String);
-                      saving = false;
-                    });
+      builder: (context) => StatefulBuilder(builder: (context, update) {
+        final visible = entries.where((mark) => (color == 'all' || mark.color == color) &&
+          (query.trim().isEmpty || mark.note.toLowerCase().contains(query.trim().toLowerCase()) || int.tryParse(query.trim()) == mark.page + 1)).toList();
+        final inset = MediaQuery.viewInsetsOf(context).bottom;
+        return Padding(padding: EdgeInsets.only(bottom: inset), child: SafeArea(child: SizedBox(
+          height: (MediaQuery.sizeOf(context).height - inset) * 0.85,
+          child: LayoutBuilder(builder: (context, bounds) => Column(children: [
+            ConstrainedBox(constraints: BoxConstraints(maxHeight: bounds.maxHeight * 0.55), child: SingleChildScrollView(child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16), child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Text('Zaznaczenia i notatki', style: Theme.of(context).textTheme.titleLarge),
+                const Text('TXT zawiera Twoje komentarze i numery stron, bez tekstu zakreślonych fragmentów.', style: TextStyle(fontSize: 12)),
+                TextField(key: const ValueKey('notes-search'), onChanged: (value) => update(() => query = value),
+                  decoration: const InputDecoration(hintText: 'Szukaj notatki lub numeru strony', prefixIcon: Icon(Icons.search))),
+                SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [
+                  for(final choice in ['all', 'yellow', 'green', 'pink']) Padding(padding: const EdgeInsets.only(right: 6), child: ChoiceChip(
+                    label: Text(choice == 'all' ? 'Wszystkie' : markerName(choice)), selected: color == choice,
+                    onSelected: (_) => update(() => color = choice),
+                  )),
+                ])),
+                Text('Widoczne: ${visible.length} / ${entries.length}'),
+                TextButton.icon(icon: const Icon(Icons.share_outlined), label: const Text('Udostępnij wszystkie (TXT)'),
+                  onPressed: saving || entries.isEmpty ? null : () async {
+                    FocusScope.of(context).unfocus(); update(() => saving = true);
+                    await _shareNotes(id);
+                    if(context.mounted) update(() => saving = false);
                   }),
-                  IconButton(tooltip: 'Usuń zaznaczenie', icon: const Icon(Icons.delete_outline), onPressed: saving ? null : () async {
-                    update(() => saving = true);
-                    final success = await _changeHighlight('delete', {'id': mark.id}, id);
-                    if(context.mounted) update(() { if(success) entries.removeWhere((item) => item.id == mark.id); saving = false; });
-                  }),
-                ]),
-              );
-            },
-          )),
-        ]),
-      ))),
+              ]),
+            ))),
+            Expanded(child: visible.isEmpty ? Center(child: Text(entries.isEmpty ? 'Brak zaznaczeń. Użyj zakreślacza.' : 'Brak pasujących notatek.')) : ListView.builder(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              itemCount: visible.length,
+              itemBuilder: (context, index) {
+                final mark = visible[index];
+                return ListTile(
+                  leading: Icon(Icons.format_color_fill, color: markerColor(mark.color)),
+                  title: Text('Strona ${mark.page + 1} · ${markerName(mark.color)}'),
+                  subtitle: Text(mark.note.isEmpty ? 'Bez notatki' : mark.note, maxLines: 3, overflow: TextOverflow.ellipsis),
+                  onTap: saving ? null : () => Navigator.pop(context, mark),
+                  trailing: PopupMenuButton<String>(tooltip: 'Opcje zaznaczenia', enabled: !saving,
+                    icon: Icon(copied == mark.id ? Icons.check : Icons.more_vert),
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(value: 'edit', child: Text('Edytuj notatkę i kolor')),
+                      if(mark.note.trim().isNotEmpty) const PopupMenuItem(value: 'copy', child: Text('Kopiuj notatkę')),
+                      const PopupMenuItem(value: 'delete', child: Text('Usuń zaznaczenie')),
+                    ],
+                    onSelected: (action) async {
+                      if(action == 'copy') {
+                        try { await Clipboard.setData(ClipboardData(text: mark.note)); if(context.mounted) update(() => copied = mark.id); }
+                        on PlatformException { if(mounted) _message('Nie udało się skopiować notatki.'); }
+                        return;
+                      }
+                      Map<String,dynamic>? data;
+                      if(action == 'edit') {
+                        data = await showDialog<Map<String,dynamic>>(context: context, builder: (_) => MarkNoteDialog(mark: mark));
+                        if(data == null || !context.mounted) return;
+                      }
+                      if(!context.mounted) return;
+                      update(() => saving = true);
+                      final changes = data;
+                      final success = await _changeHighlight(action, changes ?? {'id': mark.id}, id);
+                      if(context.mounted) update(() {
+                        if(success) {
+                          final sourceIndex = entries.indexWhere((item) => item.id == mark.id);
+                          if(sourceIndex >= 0) {
+                            if(action == 'delete') entries.removeAt(sourceIndex);
+                            else if(changes != null) entries[sourceIndex] = PageMark(id: mark.id, page: mark.page, rect: mark.rect, color: changes['color'] as String, note: changes['note'] as String);
+                          }
+                          copied = null;
+                        }
+                        saving = false;
+                      });
+                    },
+                  ),
+                );
+              },
+            )),
+          ])),
+        )));
+      }),
     );
     if(target != null && mounted && _document?['documentId'] == id) _pdfKey.currentState?.revealMatch(target.page, target.rect);
   }
@@ -735,7 +788,7 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Plikownik · 0.11.0'),
+        title: const Text('Plikownik · 0.12.0'),
         content: const SingleChildScrollView(
           child: Text(
             'Wersja testowa. Pliki otwierają się lokalnie, bez internetu.\n\n'

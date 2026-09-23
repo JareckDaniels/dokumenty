@@ -56,6 +56,23 @@ public final class PageHighlights {
         } finally { Files.deleteIfExists(temp); }
         return after;
     }
+    public static String report(String title,JSONArray marks,boolean wholeSheets) throws Exception {
+        if(marks.length()==0)throw new IOException("Brak zaznaczeń do udostępnienia.");
+        List<JSONObject> sorted=new ArrayList<>();
+        for(int i=0;i<marks.length();i++)sorted.add(marks.getJSONObject(i));
+        sorted.sort(Comparator.comparingInt((JSONObject m) -> m.optInt("page",0)).thenComparingDouble(m -> m.optDouble("top",0)));
+        StringBuilder out=new StringBuilder("Notatki z Plikownika\nDokument: ").append(title).append("\n");
+        if(wholeSheets)out.append("Numery stron dotyczą widoku całych arkuszy, także ukrytych.\n");
+        out.append("Zestawienie zawiera komentarze i numery stron. Nie zawiera tekstu ani obrazu zakreślonych fragmentów.\n\n");
+        for(JSONObject mark:sorted) {
+            String c=mark.optString("color","yellow");
+            String label=c.equals("green")?"Zielony":c.equals("pink")?"Różowy":"Żółty";
+            out.append("Strona ").append(mark.getInt("page")+1).append(" | ").append(label).append("\n");
+            String comment=mark.optString("note","");
+            out.append(comment.trim().isEmpty()?"Zaznaczony fragment bez notatki.":comment).append("\n\n");
+        }
+        return out.toString();
+    }
     private static String color(String value) throws IOException {
         if(!Arrays.asList("yellow","green","pink").contains(value))throw new IOException("Nieprawidłowy kolor.");
         return value;

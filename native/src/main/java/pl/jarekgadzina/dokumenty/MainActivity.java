@@ -176,22 +176,25 @@ public class MainActivity extends FlutterActivity {
                             String name=sharePdf?currentName.replaceFirst("\\.[^.]+$", "")+".pdf":currentName;
                             File attachment=ShareFiles.snapshot(getCacheDir(),source,name,ext);
                             String mime=ShareFiles.mime(ext);
-                            runOnUiThread(() -> {
-                                try {
-                                    if(isFinishing() || isDestroyed())throw new IOException("Podgląd został zamknięty.");
-                                    Uri content=androidx.core.content.FileProvider.getUriForFile(this,getPackageName()+".sharedfiles",attachment);
-                                    Intent send=new Intent(Intent.ACTION_SEND).setType(mime);
-                                    send.putExtra(Intent.EXTRA_STREAM,content);
-                                    send.setClipData(android.content.ClipData.newUri(getContentResolver(),attachment.getName(),content));
-                                    send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                                    Intent chooser=Intent.createChooser(send,"Udostępnij dokument");
-                                    chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                                    startActivity(chooser); result.success(null);
-                                }catch(Exception e){fail(result,e);}
-                            });
+                            shareAttachment(attachment,mime,result);
                         }catch(Exception e){runOnUiThread(() -> fail(result,e));}
                     });
                     break;
+                case "shareNotes":
+                    Number notesId=call.argument("documentId");
+                    WORKER.execute(() -> {
+                        try {
+                            if(notesId==null || notesId.longValue()!=documentId || pdf==null || readingKey==null)throw new IOException("Otwórz ponownie dokument.");
+                            String report=PageHighlights.report(currentName,PageHighlights.read(highlightFile()),readingKey.endsWith("-sheets"));
+                            File draft=File.createTempFile("notes-",".txt",getCacheDir());
+                            File attachment;
+                            try {
+                                Files.write(draft.toPath(),report.getBytes(StandardCharsets.UTF_8));
+                                attachment=ShareFiles.snapshot(getCacheDir(),draft,currentName.replaceFirst("\\.[^.]+$","")+"-notatki.txt","txt");
+                            }finally{draft.delete();}
+                            shareAttachment(attachment,ShareFiles.mime("txt"),result);
+                        }catch(Exception e){runOnUiThread(() -> fail(result,e));}
+                    }); break;
                 case "pinRecent":
                     String pinId=call.argument("id");
                     boolean pinned=Boolean.TRUE.equals(call.argument("pinned"));
@@ -684,6 +687,21 @@ public class MainActivity extends FlutterActivity {
         File[] children = f.listFiles();
         if (children != null) for (File child : children) removeTree(child);
         f.delete();
+    }
+    private void shareAttachment(File attachment,String mime,MethodChannel.Result result) {
+        runOnUiThread(() -> {
+            try {
+                if(isFinishing() || isDestroyed())throw new IOException("Podgląd został zamknięty.");
+                Uri content=androidx.core.content.FileProvider.getUriForFile(this,getPackageName()+".sharedfiles",attachment);
+                Intent send=new Intent(Intent.ACTION_SEND).setType(mime);
+                send.putExtra(Intent.EXTRA_STREAM,content);
+                send.setClipData(android.content.ClipData.newUri(getContentResolver(),attachment.getName(),content));
+                send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                Intent chooser=Intent.createChooser(send,"Udostępnij plik");
+                chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                startActivity(chooser); result.success(null);
+            }catch(Exception e){fail(result,e);}
+        });
     }
     private File highlightFile() throws IOException {
         if(readingKey==null || !readingKey.matches("[a-f0-9]{64}(-sheets)?"))throw new IOException("Brak otwartego dokumentu.");

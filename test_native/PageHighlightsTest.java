@@ -22,6 +22,18 @@ public class PageHighlightsTest {
             PageHighlights.change(file,10,"edit",edit);
             check(PageHighlights.read(file).getJSONObject(0).getString("note").equals("Zażółć gęślą\nDrugi wiersz"),"Notes survive reload");
             check(PageHighlights.read(file).getJSONObject(0).getString("color").equals("pink"),"Changed color persists");
+            JSONArray reportMarks=new JSONArray().put(PageHighlights.read(file).getJSONObject(0))
+                .put(mark().put("id","earlier").put("page",0).put("note","Pierwsza strona").put("color","green"));
+            String encodedBefore=reportMarks.toString();
+            String report=PageHighlights.report("Zażółć.pdf",reportMarks,true);
+            check(report.contains("Zażółć.pdf") && report.contains("Zażółć gęślą\nDrugi wiersz"),"Report preserves filename, Polish text and line breaks");
+            check(report.indexOf("Strona 1 | Zielony")<report.indexOf("Strona 3 | Różowy"),"Report is ordered by page");
+            check(report.contains("całych arkuszy"),"Report describes alternative sheet page numbers");
+            check(encodedBefore.equals(reportMarks.toString()),"Reporting does not alter saved highlights");
+            String blank=PageHighlights.report("Scan.pdf",new JSONArray().put(mark().put("id","empty")),false);
+            check(blank.contains("bez notatki") && blank.contains("Nie zawiera tekstu"),"Empty notes are explicit; report is not OCR");
+            try {PageHighlights.report("Empty.pdf",new JSONArray(),false);throw new AssertionError("Empty export");}
+            catch(IOException expected){}
             byte[] before=Files.readAllBytes(file.toPath());
             for(JSONObject bad:new JSONObject[]{mark().put("left",-0.1),mark().put("right",0.05),mark().put("page",10),mark().put("color","blue"),mark().put("note","x".repeat(1001))}) {
                 try {PageHighlights.change(file,10,"add",bad);throw new AssertionError("Bad mark accepted");}
