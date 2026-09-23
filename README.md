@@ -1,7 +1,33 @@
-# Plikownik 0.7.0 — wersja testowa
+# Plikownik 0.7.1 — wersja testowa
 
 Prosty czytnik dokumentów na Androida, interfejs we Flutterze.
 Silnik LibreOffice 26.2.6.3 pracuje wewnątrz aplikacji, bez serwera i bez instalowania drugiej aplikacji.
+
+## Poprawka 0.7.1 — rozmiar czcionki
+
+- Poprawiono parametr przekazywany do `.uno:FontHeight`: rozmiar w punktach trafia
+  do **`FontHeight.Height`**, zamiast do **`FontHeight`**. Ten drugi oznacza całą strukturę,
+  nie pojedynczą liczbę. Takiego samego pola używa [FontController oficjalnej aplikacji Android](https://github.com/LibreOffice/core/blob/libreoffice-25.2.0.3/android/source/src/java/org/libreoffice/FontController.java). Definicja: [SvxFontHeight w svxitems.sdi](https://github.com/LibreOffice/core/blob/master/svx/sdi/svxitems.sdi).
+- W 0.7.0 zmieniono typ zapisu wartości i okno wyboru, ale nie naprawiono tej nazwy pola.
+  To była niepełna poprawka. Test regresji teraz wymaga właściwego pola i odrzuca poprzednią postać.
+- Raport z telefonu wskazywał zakończenie procesu 65 ms po `.uno:FontHeight`, bez wyjątku Java.
+  Sam raport nie zawierał stosu wywołań silnika; związek błędnego parametru z zakończeniem
+  jest silną przesłanką, a usunięcie awarii wymaga potwierdzenia na telefonie.
+- Interfejs i pozostałe funkcje pozostają takie jak w 0.7.0.
+
+### Do przetestowania w 0.7.1
+
+1. W nowym DOCX wpisz kilka liter, zaznacz je i wybierz kolejno **12 → 18 → 24 → 12 pkt**.
+   Tekst powinien zmieniać rozmiar, a aplikacja pozostać otwarta.
+2. Ustaw rozmiar bez zaznaczenia, dopisz tekst i sprawdź, czy otrzymał wybraną wielkość.
+3. Powtórz zmianę w istniejącym DOCX lub ODT, zapisz i otwórz dokument ponownie.
+   Sprawdź również Cofnij/Ponów po zmianie rozmiaru.
+4. Jeśli aplikacja nadal się zamknie: po ponownym uruchomieniu **O aplikacji → Kopiuj diagnostykę**.
+   Dopisz format dokumentu i wybraną wielkość czcionki.
+
+Lokalnie uruchomiono testy argumentów dla wszystkich 14 rozmiarów i odrzucania wartości spoza zakresu.
+Test sprawdza zgodność nazwy pola z definicją UNO, ale nie uruchamia silnika LibreOffice.
+Pełne flutter analyze, testy Flutter i build APK wykona GitHub Actions; test telefonu pozostaje do wykonania.
 
 ## Nowości 0.7.0
 
@@ -167,7 +193,7 @@ nie dowodzą poprawności renderowania LibreOffice.
    `pubspec.yaml` musi być bezpośrednio w katalogu repozytorium. Skopiuj również `.github` i `.gitignore`.
 3. Zrób Commit, następnie Push origin.
 4. Otwórz Actions → „Zbuduj Plikownik APK”. Pierwszy build pobiera dodatkowo około 84 MB silnika.
-5. Gdy build będzie zielony, pobierz artefakt `plikownik-0.7.0-apk`.
+5. Gdy build będzie zielony, pobierz artefakt `plikownik-0.7.1-apk`.
 6. Rozpakuj artefakt, prześlij `app-release.apk` na telefon i zainstaluj.
 7. Otwórz aplikację i wybierz plik. Przy pierwszym dokumencie Office nastąpi przygotowanie silnika.
 8. Aby otwierać pliki domyślnie: w menedżerze plików wybierz dokument → Otwórz za pomocą → Plikownik →
