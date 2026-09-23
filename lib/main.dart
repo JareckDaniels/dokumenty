@@ -51,6 +51,8 @@ class _ReaderHomeState extends State<ReaderHome> {
   bool _starting = true;
   List<Map<String, dynamic>> _recent = [];
   bool _choosing = false;
+  bool _sharing = false;
+  String _recentQuery = '';
   int _page = 0;
   double _fontSize = 17;
   String? _error;
@@ -99,13 +101,78 @@ class _ReaderHomeState extends State<ReaderHome> {
     }
   }
 
+  List<Map<String, dynamic>> get _visibleRecent {
+    final query = _recentQuery.trim().toLowerCase();
+    final rows = _recent.where((entry) =>
+      (entry['name'] as String).toLowerCase().contains(query) ||
+      (entry['extension'] as String).toLowerCase().contains(query)).toList();
+    rows.sort((a, b) {
+      final pinOrder = (b['pinned'] == true ? 1 : 0) - (a['pinned'] == true ? 1 : 0);
+      if (pinOrder != 0) return pinOrder;
+      return ((b['openedAt'] as num?) ?? 0).compareTo((a['openedAt'] as num?) ?? 0);
+    });
+    return rows;
+  }
+
+  Future<void> _pinRecent(Map<String, dynamic> entry) async {
+    try {
+      await _bridge.invokeMethod<void>('pinRecent', {
+        'id': entry['id'], 'pinned': entry['pinned'] != true,
+      });
+      await _refreshRecent();
+    } on PlatformException catch (e) {
+      if (mounted) _message(e.message ?? 'Nie udało się zmienić przypięcia.');
+    }
+  }
+
+  Future<void> _shareDocument() async {
+    final document = _document;
+    if (document == null || _busy || _sharing || _editing) return;
+    setState(() => _sharing = true);
+    try {
+      bool pdf = false;
+      if (document['kind'] == 'pdf' && document['extension'] != 'pdf') {
+        final choice = await showModalBottomSheet<bool>(
+          context: context,
+          showDragHandle: true,
+          builder: (context) => SafeArea(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              ListTile(
+                leading: const Icon(Icons.description_outlined),
+                title: Text('Plik ${document['extension'].toString().toUpperCase()}'),
+                subtitle: const Text('Oryginalny format i zawartość pliku'),
+                onTap: () => Navigator.pop(context, false),
+              ),
+              ListTile(
+                leading: const Icon(Icons.picture_as_pdf_outlined),
+                title: const Text('Podgląd PDF'),
+                subtitle: const Text('Wygląd stron widoczny w podglądzie'),
+                onTap: () => Navigator.pop(context, true),
+              ),
+            ]),
+          ),
+        );
+        if (choice == null || !mounted) return;
+        pdf = choice;
+      }
+      await _bridge.invokeMethod<void>('share', {
+        'documentId': document['documentId'], 'pdf': pdf,
+      });
+    } on PlatformException catch (e) {
+      if (mounted) _message(e.message ?? 'Nie udało się udostępnić dokumentu.');
+    } finally {
+      if (mounted) setState(() => _sharing = false);
+      _drain();
+    }
+  }
+
   Future<void> _clearRecent() async {
     final yes = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Wyczyścić ostatnie dokumenty?'),
         content: const Text(
-          'Usunie to listę i jej lokalne kopie. Oryginalne pliki pozostaną w swoich folderach.',
+          'Usunie nieprzypięte pozycje i ich lokalne kopie. Przypięte dokumenty oraz pliki źródłowe pozostaną.',
         ),
         actions: [
           TextButton(
@@ -143,7 +210,7 @@ class _ReaderHomeState extends State<ReaderHome> {
   }
 
   Future<void> _open(String uri, {bool external = false}) async {
-    if (_busy || _editing) {
+    if (_busy || _editing || _sharing) {
       _queuedUri = uri;
       _queuedExternal = external;
       return;
@@ -188,7 +255,7 @@ class _ReaderHomeState extends State<ReaderHome> {
   }
 
   void _drain() {
-    if (mounted && !_busy && !_editing && !_choosing && _queuedUri != null) {
+    if (mounted && !_busy && !_editing && !_choosing && !_sharing && _queuedUri != null) {
       final uri = _queuedUri!;
       final external = _queuedExternal;
       _queuedUri = null;
@@ -274,6 +341,7 @@ class _ReaderHomeState extends State<ReaderHome> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
 
   Future<void> _close() async {
+    if (_sharing) return;
     if (_externalMode) {
       _queuedUri = null;
       // Keep the document on screen until Android closes the activity: no home-screen flash.
@@ -293,6 +361,7 @@ class _ReaderHomeState extends State<ReaderHome> {
         setState(() {
           _document = null;
           _error = null;
+          _recentQuery = '';
         });
     } on PlatformException catch (e) {
       if (mounted) _message(e.message ?? 'Nie udało się zamknąć podglądu.');
@@ -342,7 +411,7 @@ class _ReaderHomeState extends State<ReaderHome> {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Plikownik · 0.7.1'),
+        title: const Text('Plikownik · 0.8.0'),
         content: const SingleChildScrollView(
           child: Text(
             'Wersja testowa. Pliki otwierają się lokalnie, bez internetu.\n\n'
@@ -425,7 +494,7 @@ class _ReaderHomeState extends State<ReaderHome> {
   Widget build(BuildContext context) {
     final document = _document;
     final isPdf = document?['kind'] == 'pdf';
-    final locked = _busy || _choosing;
+    final locked = _busy || _choosing || _sharing;
     return PopScope(
       canPop: document == null && !_busy && !_externalMode && !_starting,
       onPopInvokedWithResult: (didPop, result) {
@@ -461,15 +530,22 @@ class _ReaderHomeState extends State<ReaderHome> {
               ),
             if (document != null)
               IconButton(
-                onPressed: locked ? null : _pick,
-                tooltip: 'Otwórz inny plik',
-                icon: const Icon(Icons.folder_open_rounded),
+                onPressed: locked ? null : _shareDocument,
+                tooltip: 'Udostępnij dokument',
+                icon: const Icon(Icons.share_outlined),
               ),
-            if (isPdf)
-              IconButton(
-                onPressed: locked ? null : _export,
-                tooltip: 'Zapisz kopię PDF',
-                icon: const Icon(Icons.save_alt_rounded),
+            if (document != null)
+              PopupMenuButton<String>(
+                tooltip: 'Więcej',
+                enabled: !locked,
+                onSelected: (value) {
+                  if (value == 'open') _pick();
+                  if (value == 'pdf') _export();
+                },
+                itemBuilder: (_) => [
+                  const PopupMenuItem(value: 'open', child: Text('Otwórz inny plik')),
+                  if (isPdf) const PopupMenuItem(value: 'pdf', child: Text('Zapisz kopię PDF')),
+                ],
               ),
             if (document == null)
               IconButton(
@@ -594,7 +670,7 @@ class _ReaderHomeState extends State<ReaderHome> {
         label: const Text('Otwórz plik'),
       ),
       const SizedBox(height: 10),
-      OutlinedButton.icon(
+      TextButton.icon(
         onPressed: _choosing ? null : _newDocument,
         icon: const Icon(Icons.note_add_outlined),
         label: const Text('Nowy dokument'),
@@ -619,11 +695,23 @@ class _ReaderHomeState extends State<ReaderHome> {
           ],
         ),
         const Text(
-          'Lokalne kopie ostatnich 10 plików.',
+          'Do 10 lokalnych kopii, w tym do 5 przypiętych. Przypięte są na górze.',
           style: TextStyle(fontSize: 12),
         ),
         const SizedBox(height: 12),
-        for (final entry in _recent)
+        TextField(
+          key: const ValueKey('recent-search'),
+          onChanged: (text) => setState(() => _recentQuery = text),
+          decoration: const InputDecoration(
+            hintText: 'Szukaj po nazwie lub formacie',
+            prefixIcon: Icon(Icons.search),
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (_visibleRecent.isEmpty)
+          const Padding(padding: EdgeInsets.all(16), child: Text('Brak pasujących dokumentów.')),
+        for (final entry in _visibleRecent)
           Card(
             elevation: 0,
             child: ListTile(
@@ -634,7 +722,11 @@ class _ReaderHomeState extends State<ReaderHome> {
                 overflow: TextOverflow.ellipsis,
               ),
               subtitle: Text((entry['extension'] as String).toUpperCase()),
-              trailing: const Icon(Icons.chevron_right),
+              trailing: IconButton(
+                tooltip: entry['pinned'] == true ? 'Odepnij dokument' : 'Przypnij dokument',
+                icon: Icon(entry['pinned'] == true ? Icons.push_pin : Icons.push_pin_outlined),
+                onPressed: entry['id'] == null ? null : () => _pinRecent(entry),
+              ),
               onTap: () => _open(entry['uri'] as String),
             ),
           ),

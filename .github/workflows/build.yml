@@ -60,12 +60,16 @@ jobs:
           javac -encoding UTF-8 -d build/native-tests native/src/main/java/pl/jarekgadzina/dokumenty/OfficeFormatting.java native/src/main/java/pl/jarekgadzina/dokumenty/SafeSave.java test_native/OfficeFormattingTest.java test_native/SafeSaveTest.java
           python3 test_native/check_office_formatting.py build/native-tests
           java -cp build/native-tests SafeSaveTest
+      - name: Sprawdz zalaczniki udostepnianych plikow
+        run: |
+          javac -encoding UTF-8 -d build/native-tests native/src/main/java/pl/jarekgadzina/dokumenty/ShareFiles.java test_native/ShareFilesTest.java
+          java -cp build/native-tests ShareFilesTest
       - name: Zbuduj APK ARM64
         run: flutter build apk --release --target-platform android-arm64
       - name: Udostepnij APK
         uses: actions/upload-artifact@v4
         with:
-          name: plikownik-0.7.1-apk
+          name: plikownik-0.8.0-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 14
           if-no-files-found: error

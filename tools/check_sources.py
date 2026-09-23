@@ -24,6 +24,15 @@ for path in (root / 'native').rglob('*.xml'):
 manifest = ET.parse(root / 'native/src/main/AndroidManifest.xml')
 ns = '{http://schemas.android.com/apk/res/android}'
 assert not any(p.get(ns + 'name') == 'android.permission.INTERNET' for p in manifest.findall('uses-permission'))
-assert '0.7.1+10' in (root / 'pubspec.yaml').read_text()
+assert '0.8.0+11' in (root / 'pubspec.yaml').read_text()
 assert (root / 'licenses/NOTICE.txt').stat().st_size > 200000
 print('Python syntax, XML, offline manifest and notices: OK')
+
+provider = next(p for p in manifest.findall('application/provider')
+                if p.get(ns + 'name') == 'androidx.core.content.FileProvider')
+assert provider.get(ns + 'exported') == 'false'
+assert provider.get(ns + 'grantUriPermissions') == 'true'
+paths = ET.parse(root / 'native/src/main/res/xml/share_paths.xml').getroot()
+assert len(paths) == 1 and paths[0].tag == 'cache-path'
+assert paths[0].get('path') == 'outgoing/'
+print('Sharing provider: private, only outgoing attachments exposed')

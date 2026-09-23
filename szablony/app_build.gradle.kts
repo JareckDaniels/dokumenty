@@ -50,3 +50,6 @@ android {
     }
 }
 flutter { source = "../.." }
+
+// Read-only content:// attachments for Android sharing.
+dependencies { implementation("androidx.core:core:1.13.1") }

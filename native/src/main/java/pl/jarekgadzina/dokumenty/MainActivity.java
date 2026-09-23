@@ -86,6 +86,39 @@ public class MainActivity extends FlutterActivity {
                             throw new IOException("Podgląd dokumentu został zamknięty.");
                         return render(index.intValue(), width.intValue());
                     }); break;
+                case "share":
+                    Number shareId=call.argument("documentId");
+                    boolean sharePdf=Boolean.TRUE.equals(call.argument("pdf"));
+                    WORKER.execute(() -> {
+                        try {
+                            if(shareId==null || shareId.longValue()!=documentId || currentSource==null)
+                                throw new IOException("Otwórz ponownie dokument przed udostępnieniem.");
+                            File source=sharePdf?displayedPdf:currentSource;
+                            if(source==null)throw new IOException("Ten dokument nie ma podglądu PDF.");
+                            String ext=sharePdf?"pdf":currentExtension;
+                            String name=sharePdf?currentName.replaceFirst("\\.[^.]+$", "")+".pdf":currentName;
+                            File attachment=ShareFiles.snapshot(getCacheDir(),source,name,ext);
+                            String mime=ShareFiles.mime(ext);
+                            runOnUiThread(() -> {
+                                try {
+                                    if(isFinishing() || isDestroyed())throw new IOException("Podgląd został zamknięty.");
+                                    Uri content=androidx.core.content.FileProvider.getUriForFile(this,getPackageName()+".sharedfiles",attachment);
+                                    Intent send=new Intent(Intent.ACTION_SEND).setType(mime);
+                                    send.putExtra(Intent.EXTRA_STREAM,content);
+                                    send.setClipData(android.content.ClipData.newUri(getContentResolver(),attachment.getName(),content));
+                                    send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                                    Intent chooser=Intent.createChooser(send,"Udostępnij dokument");
+                                    chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                                    startActivity(chooser); result.success(null);
+                                }catch(Exception e){fail(result,e);}
+                            });
+                        }catch(Exception e){runOnUiThread(() -> fail(result,e));}
+                    });
+                    break;
+                case "pinRecent":
+                    String pinId=call.argument("id");
+                    boolean pinned=Boolean.TRUE.equals(call.argument("pinned"));
+                    submit(result,() -> {pinRecent(pinId,pinned);return null;}); break;
                 case "export":
                     if (displayedPdf == null) { result.error("NO_PDF", "Najpierw otwórz dokument.", null); break; }
                     if (exportResult != null) { result.error("BUSY", "Zapisywanie jest już otwarte.", null); break; }
@@ -151,7 +184,7 @@ public class MainActivity extends FlutterActivity {
                     break;
                 case "recent": submit(result, this::recentFiles); break;
                 case "clearRecent": submit(result, () -> {
-                    removeTree(new File(getFilesDir(), "recent-documents"));
+                    clearUnpinned();
                     return null;
                 }); break;
                 case "diagnostics": submit(result, () -> AppDiagnostics.read(this)); break;
@@ -447,6 +480,8 @@ public class MainActivity extends FlutterActivity {
             File file = recentEntryFile(entry);
             if (!file.isFile()) continue;
             Map<String, Object> row = new HashMap<>();
+            row.put("id",entry.getString("id"));
+            row.put("pinned",entry.optBoolean("pinned",false));
             row.put("name", entry.getString("name"));
             row.put("extension", entry.getString("extension"));
             row.put("uri", Uri.fromFile(file).toString());
@@ -454,6 +489,31 @@ public class MainActivity extends FlutterActivity {
             result.add(row);
         }
         return result;
+    }
+
+    private void writeRecentIndex(JSONArray entries) throws Exception {
+        File root=recentRoot();
+        if(!root.exists()&&!root.mkdirs())throw new IOException("Nie można zapisać listy.");
+        File temp=new File(root,"index.tmp");
+        Files.write(temp.toPath(),entries.toString().getBytes(StandardCharsets.UTF_8));
+        Files.move(temp.toPath(),new File(root,"index.json").toPath(),StandardCopyOption.REPLACE_EXISTING);
+    }
+    private void pinRecent(String id,boolean pinned) throws Exception {
+        JSONArray entries=readRecentIndex(); JSONObject target=null; int count=0;
+        for(int i=0;i<entries.length();i++) {
+            JSONObject entry=entries.getJSONObject(i);
+            if(entry.optBoolean("pinned",false))count++;
+            if(entry.getString("id").equals(id))target=entry;
+        }
+        if(target==null)throw new IOException("Pliku nie ma już na liście.");
+        if(pinned && !target.optBoolean("pinned",false) && count>=5)throw new IOException("Możesz przypiąć maksymalnie 5 dokumentów.");
+        target.put("pinned",pinned); writeRecentIndex(entries);
+    }
+    private void clearUnpinned() throws Exception {
+        JSONArray before=readRecentIndex(),after=new JSONArray();
+        for(int i=0;i<before.length();i++)if(before.getJSONObject(i).optBoolean("pinned",false))after.put(before.getJSONObject(i));
+        writeRecentIndex(after);
+        for(int i=0;i<before.length();i++)if(!before.getJSONObject(i).optBoolean("pinned",false))recentEntryFile(before.getJSONObject(i)).delete();
     }
 
     private void rememberSafely(Uri uri, File input, String name, String extension, Map<String, Object> info) {
@@ -465,6 +525,10 @@ public class MainActivity extends FlutterActivity {
         File root = recentRoot();
         if (!root.exists() && !root.mkdirs()) throw new IOException("Nie można zapisać historii.");
         JSONArray previous = readRecentIndex();
+        List<JSONObject> ordered=new ArrayList<>();
+        for(int i=0;i<previous.length();i++)ordered.add(previous.getJSONObject(i));
+        ordered.sort((a,b) -> Long.compare(b.optLong("openedAt",0),a.optLong("openedAt",0)));
+        previous=new JSONArray(ordered);
         String id = null;
         if ("file".equals(uri.getScheme()) && uri.getPath() != null) {
             File source = new File(uri.getPath()).getCanonicalFile();
@@ -479,6 +543,14 @@ public class MainActivity extends FlutterActivity {
             for (byte b : digest) hex.append(String.format(Locale.ROOT, "%02x", b & 0xff));
             id = hex.toString();
         }
+        boolean pinned=false;
+        long pinnedBytes=0;
+        for(int i=0;i<previous.length();i++) {
+            JSONObject e=previous.getJSONObject(i);
+            if(e.getString("id").equals(id))pinned=e.optBoolean("pinned",false);
+            else if(e.optBoolean("pinned",false))pinnedBytes+=recentEntryFile(e).length();
+        }
+        if(input.length()+pinnedBytes>200L*1024*1024)throw new IOException("Przypięte dokumenty zajmują dostępną pamięć historii.");
         File target = new File(root, id + "." + extension);
         File temporary = new File(root, "copy.tmp");
         Files.copy(input.toPath(), temporary.toPath(), StandardCopyOption.REPLACE_EXISTING);
@@ -486,16 +558,15 @@ public class MainActivity extends FlutterActivity {
         JSONArray next = new JSONArray();
         JSONObject newest = new JSONObject();
         newest.put("id", id); newest.put("file", target.getName()); newest.put("name", name);
-        newest.put("extension", extension); newest.put("openedAt", System.currentTimeMillis());
+        newest.put("extension", extension); newest.put("openedAt", System.currentTimeMillis()); newest.put("pinned",pinned);
         next.put(newest);
         long total = target.length();
         Set<String> retained = new HashSet<>(); retained.add(target.getName());
-        for (int i = 0; i < previous.length(); i++) {
-            JSONObject entry = previous.getJSONObject(i);
-            File file = recentEntryFile(entry);
-            if (entry.getString("id").equals(id) || !file.isFile()) continue;
-            if (next.length() >= 10 || total + file.length() > 200L * 1024 * 1024) continue;
-            next.put(entry); total += file.length(); retained.add(file.getName());
+        for(boolean pinsFirst:new boolean[]{true,false})for(int i=0;i<previous.length();i++) {
+            JSONObject entry=previous.getJSONObject(i); File file=recentEntryFile(entry);
+            if(entry.getString("id").equals(id) || !file.isFile() || entry.optBoolean("pinned",false)!=pinsFirst)continue;
+            if(next.length()>=10 || total+file.length()>200L*1024*1024)continue;
+            next.put(entry);total+=file.length();retained.add(file.getName());
         }
         File indexTemp = new File(root, "index.tmp");
         Files.write(indexTemp.toPath(), next.toString().getBytes(StandardCharsets.UTF_8));

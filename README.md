@@ -1,7 +1,43 @@
-# Plikownik 0.7.1 — wersja testowa
+# Plikownik 0.8.0 — wersja testowa
 
 Prosty czytnik dokumentów na Androida, interfejs we Flutterze.
 Silnik LibreOffice 26.2.6.3 pracuje wewnątrz aplikacji, bez serwera i bez instalowania drugiej aplikacji.
+
+## Nowości 0.8.0 — czytanie i udostępnianie
+
+- Przycisk **Udostępnij** otwiera systemowy wybór aplikacji Androida. Dla dokumentu
+  Word/LibreOffice lub arkusza wybierz oryginalny format albo podgląd PDF.
+  PDF, TXT i CSV udostępnisz bez dodatkowego wyboru formatu.
+- Załącznik jest osobną kopią otwartego pliku. Zamknięcie podglądu nie usuwa załącznika.
+  Aplikacja odbierająca dostaje odczyt konkretnego pliku przez Android FileProvider.
+  Plikownik nie wysyła plików samodzielnie i nadal nie wymaga internetu.
+- Na ekranie głównym: **wyszukiwanie po nazwie lub formacie** oraz **przypinanie do 5 dokumentów**.
+  Przypięte kopie są na górze, pozostają po restarcie, czyszczeniu historii i otwieraniu kolejnych plików.
+  Kosz usuwa tylko nieprzypięte kopie. Aby usunąć przypiętą pozycję, najpierw ją odepnij.
+- Historia nadal ma limit 10 kopii / 200 MB. Gdy przypięte kopie zajmą miejsce,
+  nowy dokument można czytać, lecz może nie zostać dodany do historii.
+  Lista przechowuje lokalne kopie z chwili otwarcia, a nie monitoruje zmian pliku źródłowego.
+- Czytanie i udostępnianie są na pierwszym planie. Edycja pozostaje pod ołówkiem,
+  tworzenie pod **Nowy dokument**. **Zapisz kopię PDF** i **Otwórz inny plik** są w menu trzech kropek.
+- Kopie załączników mają limit 500 MB łącznie; starsze niż 48 godzin są usuwane przy kolejnym
+  udostępnieniu. Android może również zwolnić pamięć podręczną. Limit pojedynczego pliku to 100 MB.
+- AndroidX Core 1.13.1 jest zależnością kompilacji dla FileProvider. Nie wymaga połączenia przy używaniu aplikacji.
+
+### Do przetestowania w 0.8.0
+
+1. Otwórz DOCX/ODT i arkusz; udostępnij osobno oryginał i podgląd PDF przez pocztę
+   lub komunikator. Sprawdź nazwę, rozszerzenie, treść i otwarcie załącznika po stronie odbiorcy.
+2. Udostępnij PDF oraz TXT. Zamknij podgląd i sprawdź, czy przygotowany załącznik nadal się otwiera.
+3. Anuluj wybór formatu i systemowe udostępnianie. Czytanie, przewijanie i ponowne udostępnienie mają działać.
+4. Wyszukaj ostatni plik po części nazwy i po formacie, np. PDF; sprawdź brak wyników.
+5. Przypnij dokument, uruchom aplikację ponownie i wyczyść historię. Przypięty ma zostać i dać się otworzyć.
+   Sprawdź limit pięciu przypięć i zachowanie przypiętych po otwarciu ponad dziesięciu różnych plików.
+6. Otwórz załącznik z poczty/WhatsAppa, udostępnij go, wróć i użyj Wstecz — bez ekranu głównego Plikownika.
+7. Kontrolnie edytuj tekst, zmień rozmiar zaznaczenia i zapisz. Otwórz wynik ponownie.
+
+Lokalnie sprawdzono moduł załączników oraz kompilację natywnej Javy z API Androida i atrapami
+interfejsów Fluttera. Testy interfejsu dla udostępniania i listy dodano do GitHub Actions.
+Pełne `flutter analyze`, `flutter test` i budowanie APK wykona workflow; próba na telefonie pozostaje do wykonania.
 
 ## Poprawka 0.7.1 — rozmiar czcionki
 
@@ -156,7 +192,7 @@ Test tworzenia DOCX nie jest testem zapisu przez żywy silnik.
 - Wstecz z dokumentu wybranego w aplikacji wraca do listy ostatnich dokumentów.
 - Lista ostatnich plików przechowuje maksymalnie 10 lokalnych kopii (łącznie do 200 MB).
   Są to kopie z chwili otwarcia; późniejsze zmiany oryginału nie odświeżają ich automatycznie.
-- Lista zostaje po ponownym uruchomieniu aplikacji. Można ją wyczyścić przyciskiem kosza.
+- Lista zostaje po ponownym uruchomieniu aplikacji. Kosz usuwa nieprzypięte pozycje (od 0.8.0).
   Usuwane są wyłącznie prywatne kopie, nie oryginały w innych folderach/aplikacjach.
 
 ## Przewijanie z wersji 0.2.0
@@ -193,7 +229,7 @@ nie dowodzą poprawności renderowania LibreOffice.
    `pubspec.yaml` musi być bezpośrednio w katalogu repozytorium. Skopiuj również `.github` i `.gitignore`.
 3. Zrób Commit, następnie Push origin.
 4. Otwórz Actions → „Zbuduj Plikownik APK”. Pierwszy build pobiera dodatkowo około 84 MB silnika.
-5. Gdy build będzie zielony, pobierz artefakt `plikownik-0.7.1-apk`.
+5. Gdy build będzie zielony, pobierz artefakt `plikownik-0.8.0-apk`.
 6. Rozpakuj artefakt, prześlij `app-release.apk` na telefon i zainstaluj.
 7. Otwórz aplikację i wybierz plik. Przy pierwszym dokumencie Office nastąpi przygotowanie silnika.
 8. Aby otwierać pliki domyślnie: w menedżerze plików wybierz dokument → Otwórz za pomocą → Plikownik →
