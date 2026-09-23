@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'highlighter.dart';
 
 /// One continuous document. Zoom changes the layout, so vertical scrolling
 /// continues to work at every zoom level instead of panning a single page.
@@ -16,6 +17,10 @@ class ContinuousPdf extends StatefulWidget {
     this.onTap,
     this.paper = 'original',
     this.highlights = const {},
+    this.marks = const [],
+    this.marking = false,
+    this.marker = 'yellow',
+    this.onMark,
   });
   final int documentId;
   final List<Size> pageSizes;
@@ -25,6 +30,10 @@ class ContinuousPdf extends StatefulWidget {
   final VoidCallback? onTap;
   final String paper;
   final Map<int, List<Rect>> highlights;
+  final List<PageMark> marks;
+  final bool marking;
+  final String marker;
+  final Future<bool> Function(int page, Rect rect)? onMark;
   @override
   State<ContinuousPdf> createState() => ContinuousPdfState();
 }
@@ -164,6 +173,7 @@ class ContinuousPdfState extends State<ContinuousPdf> {
   }
 
   void _down(PointerDownEvent event) {
+    if(widget.marking) return;
     _pointers[event.pointer] = event.localPosition;
     if (_pointers.length != 2 || _pinching || !_vertical.hasClients) return;
     final points = _pointers.values.take(2).toList();
@@ -258,7 +268,7 @@ class ContinuousPdfState extends State<ContinuousPdf> {
         preview.translateByDouble(-_pinchStart.dx, -_pinchStart.dy, 0, 1);
       }
       return GestureDetector(
-        onTap: widget.onTap,
+        onTap: widget.marking ? null : widget.onTap,
         child: ColoredBox(
         color: widget.paper == 'dark' ? Colors.black : widget.paper == 'warm' ? const Color(0xff594938) : const Color(0xff333a3b),
         child: Listener(
@@ -274,7 +284,7 @@ class ContinuousPdfState extends State<ContinuousPdf> {
               child: SingleChildScrollView(
                 controller: _horizontal,
                 scrollDirection: Axis.horizontal,
-                physics: pinching
+                physics: pinching || widget.marking
                     ? const NeverScrollableScrollPhysics()
                     : const ClampingScrollPhysics(),
                 child: SizedBox(
@@ -285,7 +295,7 @@ class ContinuousPdfState extends State<ContinuousPdf> {
                     child: ListView.builder(
                       key: const ValueKey('continuous-document'),
                       controller: _vertical,
-                      physics: pinching
+                      physics: pinching || widget.marking
                           ? const NeverScrollableScrollPhysics()
                           : const ClampingScrollPhysics(),
                       cacheExtent: 200,
@@ -303,6 +313,11 @@ class ContinuousPdfState extends State<ContinuousPdf> {
                           render: _render,
                           paper: widget.paper,
                           highlights: widget.highlights[index] ?? const [],
+                          marks: widget.marks.where((mark) => mark.page == index).toList(),
+                          marking: widget.marking,
+                          marker: widget.marker,
+                          pageSize: widget.pageSizes[index],
+                          onMark: (rect) async => await widget.onMark?.call(index, rect) ?? false,
                         ),
                       ),
                     ),
@@ -326,7 +341,13 @@ class ContinuousPdfState extends State<ContinuousPdf> {
 }
 
 class _PdfPage extends StatefulWidget {
-  const _PdfPage({super.key, required this.index, required this.render, required this.paper, required this.highlights});
+  const _PdfPage({super.key, required this.index, required this.render, required this.paper, required this.highlights,
+    required this.marks, required this.marking, required this.marker, required this.pageSize, required this.onMark});
+  final List<PageMark> marks;
+  final bool marking;
+  final String marker;
+  final Size pageSize;
+  final Future<bool> Function(Rect) onMark;
   final String paper;
   final List<Rect> highlights;
   final int index;
@@ -372,6 +393,7 @@ class _PdfPageState extends State<_PdfPage> {
               child: Image.memory(_bytes!, fit: BoxFit.fill, semanticLabel: 'Strona ${widget.index + 1}'),
             ),
             IgnorePointer(child: CustomPaint(painter: MatchPainter(widget.highlights))),
+            MarkLayer(marks: widget.marks, enabled: widget.marking, color: widget.marker, pageSize: widget.pageSize, onDraw: widget.onMark),
           ])
         : Center(
             child: _error == null

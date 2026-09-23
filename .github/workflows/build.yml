@@ -68,12 +68,18 @@ jobs:
         run: |
           javac -encoding UTF-8 -d build/native-tests native/src/main/java/pl/jarekgadzina/dokumenty/ReadingBookmarks.java test_native/ReadingBookmarksTest.java
           java -cp build/native-tests ReadingBookmarksTest
+      - name: Sprawdz zapis zaznaczen i notatek
+        run: |
+          curl -fL --retry 3 https://repo.maven.apache.org/maven2/org/json/json/20240303/json-20240303.jar -o build/native-tests/json.jar
+          echo '3cf6cd6892e32e2b4c1c39e0f52f5248a2f5b37646fdfbb79a66b46b618414ed  build/native-tests/json.jar' | sha256sum -c -
+          javac -encoding UTF-8 -cp build/native-tests/json.jar -d build/native-tests native/src/main/java/pl/jarekgadzina/dokumenty/PageHighlights.java test_native/PageHighlightsTest.java
+          java -cp build/native-tests:build/native-tests/json.jar PageHighlightsTest
       - name: Zbuduj APK ARM64
         run: flutter build apk --release --target-platform android-arm64
       - name: Udostepnij APK
         uses: actions/upload-artifact@v4
         with:
-          name: plikownik-0.10.1-apk
+          name: plikownik-0.11.0-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 14
           if-no-files-found: error

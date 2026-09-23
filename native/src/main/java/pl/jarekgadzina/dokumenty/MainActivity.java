@@ -122,6 +122,15 @@ public class MainActivity extends FlutterActivity {
                         if(!edit.commit())throw new IOException("Nie udało się zapisać zakładki. Spróbuj ponownie.");
                         return ReadingBookmarks.read(updated,pdf.getPageCount());
                     }); break;
+                case "highlight":
+                    Number highlightId=call.argument("documentId");
+                    String highlightAction=call.argument("action"),highlightInput=call.argument("input");
+                    submit(result,() -> {
+                        if(highlightId==null || highlightId.longValue()!=documentId || pdf==null || readingKey==null)
+                            throw new IOException("Dokument został zamknięty. Otwórz go ponownie.");
+                        if(highlightInput==null || highlightInput.length()>10000 || highlightAction==null)throw new IOException("Nieprawidłowe zaznaczenie.");
+                        return PageHighlights.change(highlightFile(),pdf.getPageCount(),highlightAction,new JSONObject(highlightInput)).toString();
+                    }); break;
                 case "searchPage":
                     Number searchId=call.argument("documentId"), searchPage=call.argument("page");
                     String searchQuery=call.argument("query");
@@ -434,6 +443,8 @@ public class MainActivity extends FlutterActivity {
                 }
             }
             info.put("pageSizes", sizes);
+            try { info.put("highlights",PageHighlights.read(highlightFile()).toString()); }
+            catch(Exception e) { info.put("highlightWarning","Nie udało się odczytać zapisanych zaznaczeń. Plik można nadal czytać."); }
             info.put("bookmarks",ReadingBookmarks.read(getSharedPreferences("page-bookmarks",MODE_PRIVATE).getString(readingKey,""),pdf.getPageCount()));
             info.put("converted", !extension.equals("pdf"));
             rememberSafely(uri, input, name, extension, info);
@@ -673,6 +684,10 @@ public class MainActivity extends FlutterActivity {
         File[] children = f.listFiles();
         if (children != null) for (File child : children) removeTree(child);
         f.delete();
+    }
+    private File highlightFile() throws IOException {
+        if(readingKey==null || !readingKey.matches("[a-f0-9]{64}(-sheets)?"))throw new IOException("Brak otwartego dokumentu.");
+        return new File(new File(getFilesDir(),"page-highlights"),readingKey+".json");
     }
     private void applyReaderWindow() {
         androidx.core.view.WindowInsetsControllerCompat controller=new androidx.core.view.WindowInsetsControllerCompat(getWindow(),getWindow().getDecorView());

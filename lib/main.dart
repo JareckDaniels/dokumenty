@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'continuous_pdf.dart';
 import 'document_editor.dart';
 import 'reading_tools.dart';
+import 'highlighter.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -57,6 +58,10 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
   String _recentQuery = '';
   String _recentSort = 'recent';
   bool _bookmarkBusy = false;
+  bool _markMode = false;
+  String _marker = 'yellow';
+  String? _lastAddedMark;
+  List<PageMark> _marks = [];
   String _paper = 'original';
   bool _reading = false, _controlsVisible = true, _keepAwake = false, _pdfSearch = false;
   Map<int, List<Rect>> _highlights = {};
@@ -135,7 +140,7 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
     } on PlatformException { if(mounted) _message('Nie udało się zmienić ustawień ekranu.'); }
   }
   void _toggleControls() {
-    if (!_reading) return;
+    if (!_reading || _markMode) return;
     setState(() => _controlsVisible = !_controlsVisible);
     unawaited(_readerWindow());
   }
@@ -162,10 +167,100 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
       )),
     );
     if(!mounted) return;
-    if(fullscreen == true && _document?['documentId'] == documentId && _document?['kind'] == 'pdf') setState(() { _reading = true; _controlsVisible = false; _pdfSearch = false; _highlights = {}; });
+    if(fullscreen == true && _document?['documentId'] == documentId && _document?['kind'] == 'pdf') setState(() { _markMode = false; _reading = true; _controlsVisible = false; _pdfSearch = false; _highlights = {}; });
     await _readerWindow();
     await _saveReaderPrefs();
   }
+  List<PageMark> _decodeMarks(String value) => (jsonDecode(value) as List)
+      .map((item) => PageMark.fromJson(Map<String, dynamic>.from(item as Map))).toList();
+  Future<bool> _changeHighlight(String action, Map<String, dynamic> input, int id) async {
+    if(_bookmarkBusy || _document?['documentId'] != id) return false;
+    setState(() => _bookmarkBusy = true);
+    try {
+      final value = await _bridge.invokeMethod<String>('highlight', {'documentId': id, 'action': action, 'input': jsonEncode(input)});
+      if(!mounted || _document?['documentId'] != id || value == null) return false;
+      final marks = _decodeMarks(value);
+      setState(() {
+        _marks = marks;
+        if(action == 'add' && marks.isNotEmpty) _lastAddedMark = marks.last.id;
+        if(action == 'delete' && input['id'] == _lastAddedMark) _lastAddedMark = null;
+      });
+      return true;
+    } catch(e) {
+      if(mounted) _message(e is PlatformException ? e.message ?? 'Nie udało się zapisać zaznaczenia.' : 'Nie udało się odczytać zaznaczeń.');
+      return false;
+    } finally {
+      if(mounted) setState(() => _bookmarkBusy = false);
+      _drain();
+    }
+  }
+  Future<bool> Function(int, Rect) _drawFor(int id) => (page, rect) => _changeHighlight('add',
+    {'page': page, 'left': rect.left, 'top': rect.top, 'right': rect.right, 'bottom': rect.bottom, 'color': _marker}, id);
+  void _startMarking() {
+    setState(() { _markMode = true; _reading = false; _controlsVisible = true; _pdfSearch = false; _highlights = {}; _lastAddedMark = null; });
+    unawaited(_readerWindow());
+  }
+  Future<void> _showHighlights() async {
+    final id = _document!['documentId'] as int;
+    final entries = List<PageMark>.from(_marks)..sort((a,b) {
+      final page = a.page.compareTo(b.page);
+      return page != 0 ? page : a.rect.top.compareTo(b.rect.top);
+    });
+    bool saving = false;
+    final target = await showModalBottomSheet<PageMark>(context: context, showDragHandle: true, isScrollControlled: true,
+      builder: (context) => StatefulBuilder(builder: (context, update) => SafeArea(child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.75,
+        child: Column(children: [
+          Text('Zaznaczenia i notatki', style: Theme.of(context).textTheme.titleLarge),
+          const Padding(padding: EdgeInsets.all(12), child: Text('Zapisane tylko w Plikowniku. Nie są dołączane do udostępnianego PDF.')),
+          Expanded(child: entries.isEmpty ? const Center(child: Text('Brak zaznaczeń. Użyj zakreślacza.')) : ListView.builder(
+            itemCount: entries.length,
+            itemBuilder: (context, index) {
+              final mark = entries[index];
+              return ListTile(
+                leading: Icon(Icons.format_color_fill, color: markerColor(mark.color)),
+                title: Text('Strona ${mark.page + 1} · ${markerName(mark.color)}'),
+                subtitle: Text(mark.note.isEmpty ? 'Bez notatki' : mark.note, maxLines: 2, overflow: TextOverflow.ellipsis),
+                onTap: saving ? null : () => Navigator.pop(context, mark),
+                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                  IconButton(tooltip: 'Edytuj notatkę', icon: const Icon(Icons.edit_note), onPressed: saving ? null : () async {
+                    final data = await showDialog<Map<String,dynamic>>(context: context, builder: (_) => MarkNoteDialog(mark: mark));
+                    if(data == null || !context.mounted) return;
+                    update(() => saving = true);
+                    final success = await _changeHighlight('edit', data, id);
+                    if(context.mounted) update(() {
+                      if(success) entries[index] = PageMark(id: mark.id, page: mark.page, rect: mark.rect, color: data['color'] as String, note: data['note'] as String);
+                      saving = false;
+                    });
+                  }),
+                  IconButton(tooltip: 'Usuń zaznaczenie', icon: const Icon(Icons.delete_outline), onPressed: saving ? null : () async {
+                    update(() => saving = true);
+                    final success = await _changeHighlight('delete', {'id': mark.id}, id);
+                    if(context.mounted) update(() { if(success) entries.removeWhere((item) => item.id == mark.id); saving = false; });
+                  }),
+                ]),
+              );
+            },
+          )),
+        ]),
+      ))),
+    );
+    if(target != null && mounted && _document?['documentId'] == id) _pdfKey.currentState?.revealMatch(target.page, target.rect);
+  }
+  Widget _markerToolbar() => Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Column(children: [
+    const Text('Przeciągnij po wierszu lub obejmij fragment. Zakończ, aby przewijać.', style: TextStyle(fontSize: 12)),
+    SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [
+      for(final color in ['yellow', 'green', 'pink']) Padding(padding: const EdgeInsets.only(right: 6), child: ChoiceChip(
+        label: Text(markerName(color)), selected: _marker == color, selectedColor: markerColor(color).withAlpha(100),
+        onSelected: _bookmarkBusy ? null : (_) => setState(() => _marker = color),
+      )),
+      IconButton(tooltip: 'Cofnij ostatnie zaznaczenie', icon: const Icon(Icons.undo),
+        onPressed: _bookmarkBusy || _lastAddedMark == null ? null : () => _changeHighlight('delete', {'id': _lastAddedMark}, _document!['documentId'] as int)),
+      TextButton(onPressed: _bookmarkBusy ? null : () => setState(() => _markMode = false), child: const Text('Zakończ')),
+    ])),
+    if(_bookmarkBusy) const LinearProgressIndicator(),
+  ]));
+
   Future<void> _saveReaderPrefs() async {
     try { await _bridge.invokeMethod<String>('readerPrefs', {'value': jsonEncode({'paper': _paper, 'awake': _keepAwake, 'sort': _recentSort})}); }
     on PlatformException { if(mounted) _message('Nie udało się zapamiętać ustawień.'); }
@@ -237,6 +332,7 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
       'Rozmiar pliku: ${_fileSize(doc['sizeBytes'])}',
       if(doc['kind'] == 'pdf') 'Strony podglądu: ${doc['pages']}',
       if(doc['kind'] == 'pdf') 'Zakładki: ${_bookmarks.length}',
+      if(doc['kind'] == 'pdf') 'Zaznaczenia: ${_marks.length}',
       if(doc['wholeSheets'] == true) 'Widok całych arkuszy, także ukrytych.',
       if(doc['converted'] == true && doc['wholeSheets'] != true) 'Podgląd wydruku dokumentu Office.',
     ];
@@ -426,6 +522,7 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
       _externalMode = external;
       _error = null;
       _document = null;
+      _markMode = false; _marks = []; _lastAddedMark = null;
       _reading = false; _controlsVisible = true; _pdfSearch = false; _highlights = {};
       _page = 0;
       _query = '';
@@ -444,6 +541,9 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
       if (!mounted) return;
       if (data == null) throw const FormatException('Brak danych dokumentu.');
       setState(() { _document = data; _openedUri = uri; });
+      try { _marks = _decodeMarks(data['highlights'] as String? ?? '[]'); }
+      catch (_) { _marks = []; _message('Nie udało się odczytać zapisanych zaznaczeń.'); }
+      if(data['highlightWarning'] is String) _message(data['highlightWarning'] as String);
       await _readerWindow();
       if (data['recentWarning'] is String)
         _message(data['recentWarning'] as String);
@@ -488,6 +588,7 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
       return;
     }
     await _saveReading();
+    setState(() => _markMode = false);
     _editing = true;
     await _readerWindow();
     final external = _externalMode;
@@ -555,6 +656,7 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
 
   Future<void> _close() async {
     if (_sharing || _bookmarkBusy) return;
+    if (_markMode) { setState(() => _markMode = false); return; }
     if (_reading) {
       setState(() { _reading = false; _controlsVisible = true; });
       await _readerWindow();
@@ -633,7 +735,7 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Plikownik · 0.10.1'),
+        title: const Text('Plikownik · 0.11.0'),
         content: const SingleChildScrollView(
           child: Text(
             'Wersja testowa. Pliki otwierają się lokalnie, bez internetu.\n\n'
@@ -769,11 +871,15 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
                   if (value == 'reading') _readingOptions();
                   if (value == 'pages') _thumbnails();
                   if (value == 'bookmarks') _showBookmarks();
+                  if (value == 'marker') _startMarking();
+                  if (value == 'marks') _showHighlights();
                   if (value == 'info') _fileInfo();
                   if (value == 'search') setState(() { _pdfSearch = !_pdfSearch; _highlights = {}; });
                   if (value == 'sheets') _switchSheets();
                 },
                 itemBuilder: (_) => [
+                  if (isPdf) const PopupMenuItem(value: 'marker', child: Text('Zakreślacz')),
+                  if (isPdf) PopupMenuItem(value: 'marks', child: Text('Zaznaczenia i notatki (${_marks.length})')),
                   if (isPdf) const PopupMenuItem(value: 'pages', child: Text('Miniatury / arkusze')),
                   if (isPdf) PopupMenuItem(value: 'bookmarks', child: Text('Zakładki (${_bookmarks.length})')),
                   const PopupMenuItem(value: 'info', child: Text('Informacje o pliku')),
@@ -1042,6 +1148,7 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
           ),
         ),
       if (_error != null) _errorCard(),
+      if (_markMode) _markerToolbar(),
       if (_pdfSearch && (!_reading || _controlsVisible)) PdfSearchBar(
         key: ValueKey('search-${_document!['documentId']}'),
         documentId: _document!['documentId'] as int, pages: _document!['pages'] as int,
@@ -1059,6 +1166,10 @@ class _ReaderHomeState extends State<ReaderHome> with WidgetsBindingObserver {
           onViewChanged: _scheduleReadingSave,
           onTap: _toggleControls,
           highlights: _highlights,
+          marks: _marks,
+          marking: _markMode,
+          marker: _marker,
+          onMark: _drawFor(_document!['documentId'] as int),
           documentId: _document!['documentId'] as int,
           pageSizes: (_document!['pageSizes'] as List)
               .map(

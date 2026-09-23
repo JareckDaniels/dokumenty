@@ -1,7 +1,58 @@
-# Plikownik 0.10.1 — wersja testowa
+# Plikownik 0.11.0 — wersja testowa
 
 Prosty czytnik dokumentów na Androida, interfejs we Flutterze.
 Silnik LibreOffice 26.2.6.3 pracuje wewnątrz aplikacji, bez serwera i bez instalowania drugiej aplikacji.
+
+## Nowości 0.11.0 — zakreślacz i notatki
+
+- **Menu → Zakreślacz** w PDF i podglądach dokumentów Office. Przeciągnij palcem poziomo
+  po wierszu lub ukośnie, aby objąć prostokątem większy fragment. To zaznaczanie obszaru,
+  nie automatyczny wybór słów. Działa również na skanach bez warstwy tekstowej.
+- Kolory: **żółty, zielony i różowy**, z przezroczystością umożliwiającą czytanie tekstu.
+  Kolor zaznaczenia pozostaje ten sam w oryginalnym, ciemnym i ciepłym trybie czytania.
+- W trybie zakreślacza przewijanie i powiększanie są wyłączone, aby ruch palca rysował.
+  **Zakończ** lub pierwszy gest Wstecz wraca do przewijania. Ustaw powiększenie przed rysowaniem.
+  Drugi palec anuluje rozpoczęte zaznaczenie zamiast rysować przypadkowy obszar.
+- **Cofnij ostatnie zaznaczenie** usuwa ostatni fragment dodany w bieżącej sesji zakreślacza.
+- **Menu → Zaznaczenia i notatki** pokazuje listę w kolejności stron. Dotknięcie pozycji
+  przenosi do jej miejsca; ikona notatki otwiera edycję komentarza i koloru, kosz usuwa
+  zaznaczenie wraz z komentarzem. Komentarz może mieć do 1000 znaków.
+- Położenie jest zapisywane względem strony, więc zaznaczenia zachowują miejsce przy
+  powiększeniu, obrocie oraz ponownym otwarciu. Obejmują PDF i podglądy Worda/LibreOffice/arkuszy.
+- Zaznaczenia i notatki są **lokalnymi danymi Plikownika**, osobnymi od dokumentu.
+  **Nie są nanoszone do oryginału ani do udostępnianego/eksportowanego PDF.**
+  Nie są to standardowe adnotacje PDF odczytywane przez inne programy.
+  Identyczna kopia pliku używa tych samych zaznaczeń. Po zmianie zawartości pliku powstaje
+  nowy zestaw; podgląd wydruku i widok całych arkuszy mają oddzielne zestawy.
+- Limit: 500 zaznaczeń w dokumencie, do 200 dokumentów/widoków i 2 MB danych na dokument.
+  Zapis przez plik tymczasowy; błąd nie jest sygnalizowany jako sukces i nie usuwa wcześniejszych
+  zaznaczeń. Czyszczenie historii nie usuwa notatek; odinstalowanie lub wyczyszczenie danych aplikacji je usuwa.
+- Informacje o pliku pokazują również liczbę zaznaczeń.
+
+### Do przetestowania w 0.11.0
+
+1. PDF → menu → Zakreślacz. Zaznacz wiersz na żółto, następny na zielono i fragment na różowo.
+   Sprawdź rysowanie z lewej do prawej i w odwrotną stronę. Zakończ i przewijaj normalnie.
+2. Cofnij ostatnie zaznaczenie. Pozostałe mają zostać. Pierwsze Wstecz podczas rysowania
+   ma zakończyć tryb zakreślacza, a nie zamknąć dokument.
+3. Zaznaczenia i notatki → ikona notatki: wpisz polski tekst i zmień kolor. Zamknij aplikację,
+   otwórz ten sam plik i sprawdź zaznaczenia oraz komentarz.
+4. Z listy przejdź do zaznaczenia na innej stronie; usuń jedną pozycję. Po ponownym otwarciu
+   usunięta pozycja nie powinna wrócić, a pozostałe mają zostać.
+5. Zaznacz fragment po powiększeniu, następnie pomniejsz i obróć telefon. Kolor ma pozostać
+   na tym samym fragmencie dokumentu. Sprawdź także ciemny i ciepły widok.
+6. Powtórz na skanie PDF, DOCX/ODT oraz arkuszu. Zaznaczanie nie wymaga rozpoznanego tekstu.
+7. Podczas rysowania dołóż drugi palec — rozpoczęte zaznaczenie powinno zostać anulowane.
+8. Udostępnij plik i PDF z podglądu: odbiorca dostaje dokument bez lokalnych zaznaczeń i notatek.
+9. Kontrolnie sprawdź zwykłe przewijanie, powiększanie, zakładki stron oraz powrót do poczty/WhatsAppa.
+
+Lokalnie przeszły testy przechowywania zaznaczeń: zapis i ponowny odczyt, polskie znaki,
+zmiana koloru, usuwanie, granice współrzędnych, limity, zachowanie danych przy błędnym żądaniu
+oraz nieudana podmiana pliku. Przeszła kompilacja Javy z API Androida/AndroidX i atrapami mostka Flutter.
+Dodano testy interfejsu gestów, współrzędnych, notatki i cofania. Pełne `flutter analyze`,
+`flutter test` i budowanie APK wykona GitHub Actions; nie wykonano ich lokalnie ani nie testowano APK na telefonie.
+Test JVM używa wyłącznie testowej biblioteki JSON-Java 20240303 z weryfikacją SHA-256;
+produkcyjna aplikacja używa systemowego `org.json` Androida i nadal działa offline.
 
 ## Poprawka 0.10.1 — analiza Fluttera
 
@@ -354,7 +405,7 @@ nie dowodzą poprawności renderowania LibreOffice.
    `pubspec.yaml` musi być bezpośrednio w katalogu repozytorium. Skopiuj również `.github` i `.gitignore`.
 3. Zrób Commit, następnie Push origin.
 4. Otwórz Actions → „Zbuduj Plikownik APK”. Pierwszy build pobiera dodatkowo około 84 MB silnika.
-5. Gdy build będzie zielony, pobierz artefakt `plikownik-0.10.1-apk`.
+5. Gdy build będzie zielony, pobierz artefakt `plikownik-0.11.0-apk`.
 6. Rozpakuj artefakt, prześlij `app-release.apk` na telefon i zainstaluj.
 7. Otwórz aplikację i wybierz plik. Przy pierwszym dokumencie Office nastąpi przygotowanie silnika.
 8. Aby otwierać pliki domyślnie: w menedżerze plików wybierz dokument → Otwórz za pomocą → Plikownik →
